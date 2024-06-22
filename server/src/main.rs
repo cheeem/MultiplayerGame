@@ -1,28 +1,30 @@
 use tokio;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use futures_util::{ SinkExt, StreamExt };
 use tokio_tungstenite;
 use tokio_tungstenite::tungstenite;
 
 #[derive(Debug)]
 enum ClientMessage {
-    Connect {
-        send_to_client: mpsc::Sender<Vec<u8>>
+    Connect { 
+        send_idx_to_client: oneshot::Sender<usize>,
+        send_to_client: mpsc::Sender<Vec<u8>>,
     },
-    Jump,
-    WalkLeft,
-    WalkRight,
+    Jump(usize),
+    WalkLeft(usize),
+    WalkRight(usize),
 }
 
 struct Game {
     receive_from_client: mpsc::Receiver<ClientMessage>,
     // must use try_send to avoid deadlocks
-    users: Vec<User>,
+    users: Vec<Option<User>>,
 }
 
+#[derive(Debug)]
 struct User {
     send_to_client: mpsc::Sender<Vec<u8>>,
-    id: u8,
     x: u8,
     y: u8,
     width: u8,
@@ -30,6 +32,7 @@ struct User {
 }
 
 struct Client {
+    idx: usize,
     ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     receive_from_game: mpsc::Receiver<Vec<u8>>,
     send_to_game: mpsc::Sender<ClientMessage>,
@@ -60,63 +63,85 @@ impl Game {
                         }
                     };
 
-                    println!("{:#?}", client_msg);
-
-                    let id = 0;
-
                     match client_msg {
-                        ClientMessage::Connect { send_to_client } => game.users.push(User::new(send_to_client)),
-                        ClientMessage::Jump => (),
-                        ClientMessage::WalkLeft => {
-                            match game.users.iter_mut().find(|user| user.id == id) {
-                                Some(user) => user.walk_left(),
-                                None => continue,
+                        ClientMessage::Connect { send_idx_to_client, send_to_client } => {
+
+                            match game.users.iter().position(|user| user.is_none()) {
+                                Some(idx) => {
+                                    if send_idx_to_client.send(idx).is_ok() {
+                                        game.users[idx] = Some(User::new(send_to_client));
+                                    }
+                                }
+                                None => {
+                                    if send_idx_to_client.send(game.users.len()).is_ok() {
+                                        game.users.push(Some(User::new(send_to_client)));
+                                    }
+                                }
                             }
+
                         },
-                        ClientMessage::WalkRight => {
-                            match game.users.iter_mut().find(|user| user.id == id) {
-                                Some(user) => user.walk_right(),
-                                None => continue,
-                            }
-                        },
+                        ClientMessage::Jump(idx) => (),
+                        ClientMessage::WalkLeft(idx) => { game.users[idx].as_mut().map(|user| user.walk_left()); },
+                        ClientMessage::WalkRight(idx) => { game.users[idx].as_mut().map(|user| user.walk_right()); },
                     }
 
                 },
 
                 _ = timer.tick() => {
 
-                    if game.users.len() == 0 { 
+                    let len: usize = game.users.len();
+
+                    if len == 0 { 
                         continue;
                     }
 
+                    let mut last_idx: Option<usize> = None;
+
+                    for idx in (0..len).rev() {
+                        if game.users[idx].is_some() {
+                            last_idx = Some(idx);
+                            break;
+                        }
+                    }
+
+                    let last_idx: usize = match last_idx {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+
                     let buf: Vec<u8> = game.create_render_buffer();
 
-                    let mut idx: usize = 0;
+                    for idx in 0..last_idx {
 
-                    while idx < game.users.len() - 1 {
+                        let user: &User = match &game.users[idx] {
+                            Some(user) => user,
+                            None => continue,
+                        };
 
-                        let send_to_client = &game.users[idx].send_to_client;
-
-                        match send_to_client.try_send(buf.clone()) {
-                            Ok(_) => idx += 1,
+                        match user.send_to_client.try_send(buf.clone()) {
+                            Ok(_) => (),
                             Err(mpsc::error::TrySendError::Closed(_)) => {
                                 // drop user + sender
-                                let _ = game.users.remove(idx);
-                                continue;
+                                let _ = game.users[idx] = None;
                             },
                             Err(err) => {
                                 println!("failed to send render buffer: {:#?}", err);
                                 return; 
                             }
                         }
-                        
+
                     }
 
-                    match game.users.last().unwrap().send_to_client.try_send(buf) {
+                    let last_user: &User = match &game.users[last_idx] {
+                        Some(user) => user,
+                        None => continue,
+                    };
+
+                    match last_user.send_to_client.try_send(buf) {
                         Ok(_) => (),
                         Err(mpsc::error::TrySendError::Closed(_)) => {
                             // drop user + sender
-                            let _ = game.users.remove(game.users.len() - 1);
+                            let _ = game.users[last_idx] = None;
                         },
                         Err(err) => {
                             println!("failed to send render buffer: {:#?}", err);
@@ -135,7 +160,7 @@ impl Game {
 
         let mut buf: Vec<u8> = Vec::new();
 
-        for user in &self.users {
+        for user in self.users.iter().filter_map(|user| user.as_ref()) {
             buf.push(0);
             buf.push(user.x);
             buf.push(user.y);
@@ -155,7 +180,6 @@ impl User {
 
         Self {
             send_to_client,
-            id: 0, // pass in id as parameter as uuid or smth else
             x: 0,
             y: 0,
             width: 10, 
@@ -191,16 +215,33 @@ impl Client {
             receive_from_game,
         ) = mpsc::channel(100);
 
+        let (
+            send_idx_to_client,
+            receive_idx_from_game 
+        ) = oneshot::channel();
+
+        if let Err(err) = send_to_game.send(ClientMessage::Connect { 
+            send_idx_to_client, 
+            send_to_client, 
+        }).await {
+            println!("failed to connect to game: {:#?}", err);
+            return;
+        }
+
+        let idx: usize = match receive_idx_from_game.await {
+            Ok(idx) => idx,
+            Err(err) => {
+                println!("error receiving index: {:#?}", err);
+                return;
+            }
+        };
+
         let mut client: Self = Self {
+            idx,
             ws,
             receive_from_game,
             send_to_game,
         };
-
-        if let Err(err) = client.send_to_game.send(ClientMessage::Connect { send_to_client, }).await {
-            println!("failed to connect to game: {:#?}", err);
-            return;
-        }
 
         // use tokio select to create 2 tasks, one for passing on client messages (below), and one for listening for render commands from game
         loop {
@@ -245,7 +286,7 @@ impl Client {
                         }
                     };
 
-                    let client_message: ClientMessage = match Self::parse_binary(&buf) {
+                    let client_message: ClientMessage = match Self::parse_binary(&buf, client.idx) {
                         Some(client_message) => client_message,
                         None => {
                             println!("invalid client message binary format");
@@ -266,12 +307,12 @@ impl Client {
 
     }
 
-    fn parse_binary(buf: &[u8]) -> Option<ClientMessage> {
+    fn parse_binary(buf: &[u8], idx: usize) -> Option<ClientMessage> {
 
         match buf[0] {
-            0 => Some(ClientMessage::Jump),
-            1 => Some(ClientMessage::WalkLeft),
-            2 => Some(ClientMessage::WalkRight),
+            0 => Some(ClientMessage::Jump(idx)),
+            1 => Some(ClientMessage::WalkLeft(idx)),
+            2 => Some(ClientMessage::WalkRight(idx)),
             _ => None,
         }
 
