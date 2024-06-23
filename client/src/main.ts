@@ -1,4 +1,4 @@
-const ws: WebSocket = new WebSocket('ws://localhost:9002');
+const ws: WebSocket = new WebSocket('ws://localhost:3000');
 const canvas: HTMLCanvasElement = document.querySelector("canvas")!;
 const ctx: CanvasRenderingContext2D = canvas.getContext("2d")!;
 
