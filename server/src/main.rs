@@ -27,6 +27,8 @@ struct User {
     send_to_client: mpsc::Sender<Vec<u8>>,
     x: u8,
     y: u8,
+    dx: i8,
+    dy: i8,
     width: u8,
     height: u8,
 }
@@ -57,10 +59,7 @@ impl Game {
 
                     let client_msg: ClientMessage = match client_msg {
                         Some(client_msg) => client_msg,
-                        None => {
-                            println!("no client message found");
-                            return;
-                        }
+                        None => return println!("no client message found"),
                     };
 
                     match client_msg {
@@ -80,7 +79,7 @@ impl Game {
                             }
 
                         },
-                        ClientMessage::Jump(idx) => (),
+                        ClientMessage::Jump(idx) => { game.users[idx].as_mut().map(|user| user.jump()); },
                         ClientMessage::WalkLeft(idx) => { game.users[idx].as_mut().map(|user| user.walk_left()); },
                         ClientMessage::WalkRight(idx) => { game.users[idx].as_mut().map(|user| user.walk_right()); },
                     }
@@ -93,6 +92,10 @@ impl Game {
 
                     if len == 0 { 
                         continue;
+                    }
+
+                    for user in game.users.iter_mut().filter_map(|user| user.as_mut()) {
+                        user.tick();
                     }
 
                     let mut last_idx: Option<usize> = None;
@@ -120,14 +123,8 @@ impl Game {
 
                         match user.send_to_client.try_send(buf.clone()) {
                             Ok(_) => (),
-                            Err(mpsc::error::TrySendError::Closed(_)) => {
-                                // drop user + sender
-                                let _ = game.users[idx] = None;
-                            },
-                            Err(err) => {
-                                println!("failed to send render buffer: {:#?}", err);
-                                return; 
-                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => game.users[idx] = None,
+                            Err(err) => return println!("failed to send render buffer: {:#?}", err),
                         }
 
                     }
@@ -139,14 +136,8 @@ impl Game {
 
                     match last_user.send_to_client.try_send(buf) {
                         Ok(_) => (),
-                        Err(mpsc::error::TrySendError::Closed(_)) => {
-                            // drop user + sender
-                            let _ = game.users[last_idx] = None;
-                        },
-                        Err(err) => {
-                            println!("failed to send render buffer: {:#?}", err);
-                            return; 
-                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => game.users[last_idx] = None,
+                        Err(err) => return println!("failed to send render buffer: {:#?}", err),
                     }
 
                 },
@@ -176,24 +167,106 @@ impl Game {
 
 impl User {
 
+    const GRAVITY: i8 = 2;
+    const JUMP: i8 = -16;
+    const FRICTION: i8 = 1;
+
     fn new(send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
 
         Self {
             send_to_client,
             x: 0,
             y: 0,
+            dx: 0,
+            dy: 0,
             width: 10, 
             height: 10, 
         }
 
     }
 
+    fn tick(&mut self) { 
+
+        self.fall(); 
+
+        match self.dx.cmp(&0) {
+            std::cmp::Ordering::Equal => (), 
+            std::cmp::Ordering::Greater => {
+
+                let dx_magnitude: u8 = self.dx as u8;
+                let bounds_collision: bool = u8::MAX - self.width + 1 - dx_magnitude > self.x;
+
+                if bounds_collision {
+                    self.x += dx_magnitude;
+                    self.dx -= Self::FRICTION;
+                } else {
+                    self.x = u8::MAX - self.width + 1;
+                    self.dx = 0;
+                }
+
+            }
+            std::cmp::Ordering::Less => {
+
+                let dx_magnitude: u8 = (self.dx * -1) as u8;
+                let bounds_collision: bool = self.x > dx_magnitude;
+
+                if bounds_collision {
+                    self.x -= dx_magnitude;
+                    self.dx += Self::FRICTION;
+                } else {
+                    self.x = 0;
+                    self.dx = 0;
+                }
+
+            }
+        }
+
+        match self.dy.cmp(&0) {
+            std::cmp::Ordering::Equal => (), 
+            std::cmp::Ordering::Greater => {
+
+                let dy_magnitude: u8 = self.dy as u8;
+                let bounds_collision: bool = u8::MAX - self.height + 1 - dy_magnitude > self.y;
+
+                if bounds_collision {
+                    self.y += dy_magnitude;
+                } else {
+                    self.y = u8::MAX - self.height + 1;
+                    self.dy = 0;
+                }
+
+            }
+            std::cmp::Ordering::Less => {
+
+                let dy_magnitude: u8 = (self.dy * -1) as u8;
+                let bounds_collision: bool = self.y > dy_magnitude;
+
+                if bounds_collision {
+                    self.y -= dy_magnitude;
+                } else {
+                    self.y = 0;
+                    self.dy = 0;
+                }
+
+            }
+        }
+
+    }
+
+    fn fall(&mut self) {
+        self.dy += Self::GRAVITY;
+    }
+
+    fn jump(&mut self) {
+        self.dy = Self::JUMP;
+    }
+
     fn walk_left(&mut self) {
-        self.x -= 5;
+        self.dx = -5;
     }
 
     fn walk_right(&mut self) {
-        self.x += 5; 
+        self.dx = 5; 
     }
 
 }
@@ -204,10 +277,7 @@ impl Client {
 
         let ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream> = match tokio_tungstenite::accept_async(stream).await {
             Ok(ws) => ws,
-            Err(_) => {
-                println!("failed to connect to websocket");
-                return;
-            }
+            Err(_) => return println!("failed to connect to websocket"),
         };
 
         let (
@@ -224,16 +294,12 @@ impl Client {
             send_idx_to_client, 
             send_to_client, 
         }).await {
-            println!("failed to connect to game: {:#?}", err);
-            return;
+            return println!("failed to connect to game: {:#?}", err);
         }
 
         let idx: usize = match receive_idx_from_game.await {
             Ok(idx) => idx,
-            Err(err) => {
-                println!("error receiving index: {:#?}", err);
-                return;
-            }
+            Err(err) => return println!("error receiving index: {:#?}", err),
         };
 
         let mut client: Self = Self {
@@ -251,15 +317,11 @@ impl Client {
 
                     let buf: Vec<u8> = match buf {
                         Some(buf) => buf,
-                        None => {
-                            println!("no render buffer found");
-                            break;
-                        }
+                        None => return println!("no render buffer found"),
                     };
 
                     if let Err(err) = client.ws.send(tungstenite::Message::binary(buf)).await {
-                        println!("failed to send on websocket stream: {:#?}", err);
-                        break;
+                        return println!("failed to send on websocket stream: {:#?}", err);
                     }
 
                 }
@@ -268,35 +330,22 @@ impl Client {
                     
                     let ws_msg: tungstenite::Message = match ws_msg {
                         Some(Ok(ws_msg)) => ws_msg,
-                        Some(Err(err)) => {
-                            println!("failed to listen on websocket stream: {:#?}", err);
-                            break;
-                        }
-                        None => {
-                            println!("no tungstenite message found");
-                            break;
-                        }
+                        Some(Err(err)) => return println!("failed to listen on websocket stream: {:#?}", err),
+                        None => return println!("no tungstenite message found"),
                     };
 
                     let buf: Vec<u8> = match ws_msg {
                         tungstenite::Message::Binary(buf) => buf,
-                        _ => {
-                            println!("invalid tungstenite message format");
-                            break;
-                        }
+                        _ => return println!("invalid tungstenite message format"),
                     };
 
                     let client_message: ClientMessage = match Self::parse_binary(&buf, client.idx) {
                         Some(client_message) => client_message,
-                        None => {
-                            println!("invalid client message binary format");
-                            break;
-                        }
+                        None => return println!("invalid client message binary format"),
                     };
 
                     if let Err(err) = client.send_to_game.send(client_message).await { 
-                        println!("error sending client message: {:#?}", err);
-                        break;
+                        return println!("error sending client message: {:#?}", err);
                     }
 
                 }
@@ -320,7 +369,7 @@ impl Client {
     
 }
 
-static ADDR: &'static str = "127.0.0.1:9002";
+static ADDR: &'static str = "127.0.0.1:3000";
 
 #[tokio::main]
 async fn main() {
