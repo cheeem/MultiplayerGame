@@ -5,32 +5,64 @@ use futures_util::{ SinkExt, StreamExt };
 use tokio_tungstenite;
 use tokio_tungstenite::tungstenite;
 
+// // probably slow due to indirection associated with trait objects and the sheer # of function calls required 
+// trait Entity {
+
+//     fn x(&self) -> u8;
+//     fn y(&self) -> u8;
+//     fn width(&self) -> u8;
+//     fn height(&self) -> u8;
+
+//     fn aabb_collision(&self, other: &impl Entity) -> bool {
+//         self.x() < other.x() + other.width() &&
+//         self.x() + self.width() > other.x() &&
+//         self.y() < other.y() + other.height() &&
+//         self.y() + self.height() > other.y()
+//     }
+
+// }
+
 #[derive(Debug)]
 enum ClientMessage {
     Connect { 
         send_idx_to_client: oneshot::Sender<usize>,
         send_to_client: mpsc::Sender<Vec<u8>>,
     },
-    Jump(usize),
-    WalkLeft(usize),
-    WalkRight(usize),
+    UpStart(usize),
+    UpEnd(usize),
+    LeftStart(usize),
+    LeftEnd(usize),
+    RightStart(usize),
+    RightEnd(usize),
 }
 
-struct Game {
-    receive_from_client: mpsc::Receiver<ClientMessage>,
-    // must use try_send to avoid deadlocks
-    users: Vec<Option<User>>,
-}
+// #[derive(Debug)]
+// enum UserState {
+//     Idle, 
+//     RunningLeft,
+//     RunningRight,
+//     Jumping, 
+// }
 
 #[derive(Debug)]
 struct User {
     send_to_client: mpsc::Sender<Vec<u8>>,
+    //
     x: u8,
     y: u8,
     dx: i8,
     dy: i8,
     width: u8,
     height: u8,
+    weight: i8,
+    grounded: bool,
+    holding_left: bool, 
+    holding_right: bool, 
+}
+
+struct Game {
+    receive_from_client: mpsc::Receiver<ClientMessage>,
+    users: Vec<Option<User>>,
 }
 
 struct Client {
@@ -38,6 +70,172 @@ struct Client {
     ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     receive_from_game: mpsc::Receiver<Vec<u8>>,
     send_to_game: mpsc::Sender<ClientMessage>,
+}
+
+impl User {
+
+    const GRAVITY: i8 = 2;
+    const JUMP_FORCE: i8 = -40;
+    const JUMP_CUTOFF: i8 = 2;
+
+    const RUN_START_FORCE: i8 = 2;
+    const RUN_END_FORCE: i8 = 4;
+    const RUN_MAX_SPEED: i8 = 8;
+
+    fn new(send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
+
+        Self {
+            send_to_client,
+            x: 0,
+            y: 0,
+            dx: 0,
+            dy: 0,
+            width: 10, 
+            height: 10, 
+            weight: 2,
+            grounded: false,            
+            holding_left: false,
+            holding_right: false,
+        }
+
+    }
+
+    fn tick(&mut self) { 
+
+        self.fall(); 
+
+        if self.holding_left {
+            self.run_left();
+        }
+
+        if self.holding_right {
+            self.run_right();
+        }
+
+        match self.dx.cmp(&0) {
+            std::cmp::Ordering::Equal => (), 
+            std::cmp::Ordering::Greater => {
+
+                let dx_magnitude: u8 = self.dx as u8;
+                let no_bounds_collision: bool = u8::MAX - self.width + 1 - dx_magnitude > self.x;
+
+                if no_bounds_collision {
+
+                    if self.holding_right == false {
+                        self.end_run_right();
+                    }
+
+                    self.x += dx_magnitude;
+
+                } else {
+                    self.x = u8::MAX - self.width + 1;
+                    self.dx = 0;
+                }
+
+            }
+            std::cmp::Ordering::Less => {
+
+                let dx_magnitude: u8 = (self.dx * -1) as u8;
+                let no_bounds_collision: bool = self.x > dx_magnitude;
+
+                if no_bounds_collision {
+
+                    if self.holding_left == false {
+                        self.end_run_left();
+                    }
+
+                    self.x -= dx_magnitude;
+
+                } else {
+                    self.x = 0;
+                    self.dx = 0;
+                }
+
+            }
+        }
+
+        match self.dy.cmp(&0) {
+            std::cmp::Ordering::Equal => (), 
+            std::cmp::Ordering::Greater => {
+
+                let dy_magnitude: u8 = self.dy as u8;
+                let no_bounds_collision: bool = u8::MAX - self.height + 1 - dy_magnitude > self.y;
+
+                if no_bounds_collision {
+
+                    self.y += dy_magnitude;
+
+                    self.grounded = false;
+
+                } else {
+
+                    self.y = u8::MAX - self.height + 1;
+                    self.dy = 0;
+                    
+                    self.grounded = true;
+
+                }
+
+            }
+            std::cmp::Ordering::Less => {
+
+                let dy_magnitude: u8 = (self.dy * -1) as u8;
+                let no_bounds_collision: bool = self.y > dy_magnitude;
+
+                if no_bounds_collision {
+                    self.y -= dy_magnitude;
+                } else {
+                    self.y = 0;
+                    self.dy = 0;
+                }
+
+            }
+        }
+
+    }
+
+    fn fall(&mut self) {
+        self.dy += Self::GRAVITY;
+    }
+
+    fn jump(&mut self) {
+        if self.grounded {
+            self.dy = Self::JUMP_FORCE / self.weight;
+        }
+    }
+
+    fn end_jump(&mut self) {
+        self.dy /= Self::JUMP_CUTOFF;
+    }
+
+    fn run_left(&mut self) {
+        self.dx = std::cmp::max(
+            -Self::RUN_MAX_SPEED, 
+            self.dx - Self::RUN_START_FORCE / self.weight,
+        );
+    }
+
+    fn end_run_left(&mut self) {
+        self.dx = std::cmp::min(
+            0, 
+            self.dx + Self::RUN_END_FORCE / self.weight,
+        ); 
+    }
+
+    fn run_right(&mut self) {
+        self.dx = std::cmp::min(
+            Self::RUN_MAX_SPEED, 
+            self.dx + Self::RUN_START_FORCE / self.weight,
+        );
+    }
+
+    fn end_run_right(&mut self) {
+        self.dx = std::cmp::max(
+            0, 
+            self.dx - Self::RUN_END_FORCE / self.weight,
+        ); 
+    }
+
 }
 
 impl Game {
@@ -79,9 +277,12 @@ impl Game {
                             }
 
                         },
-                        ClientMessage::Jump(idx) => { game.users[idx].as_mut().map(|user| user.jump()); },
-                        ClientMessage::WalkLeft(idx) => { game.users[idx].as_mut().map(|user| user.walk_left()); },
-                        ClientMessage::WalkRight(idx) => { game.users[idx].as_mut().map(|user| user.walk_right()); },
+                        ClientMessage::UpStart(idx) => { game.users[idx].as_mut().map(|user| user.jump()); },
+                        ClientMessage::UpEnd(idx) => { game.users[idx].as_mut().map(|user| user.end_jump()); },
+                        ClientMessage::LeftStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = true ); },
+                        ClientMessage::LeftEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = false); },
+                        ClientMessage::RightStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = true); },
+                        ClientMessage::RightEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = false); },
                     }
 
                 },
@@ -161,112 +362,6 @@ impl Game {
 
         return buf;
 
-    }
-
-}
-
-impl User {
-
-    const GRAVITY: i8 = 2;
-    const JUMP: i8 = -16;
-    const FRICTION: i8 = 1;
-
-    fn new(send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
-
-        Self {
-            send_to_client,
-            x: 0,
-            y: 0,
-            dx: 0,
-            dy: 0,
-            width: 10, 
-            height: 10, 
-        }
-
-    }
-
-    fn tick(&mut self) { 
-
-        self.fall(); 
-
-        match self.dx.cmp(&0) {
-            std::cmp::Ordering::Equal => (), 
-            std::cmp::Ordering::Greater => {
-
-                let dx_magnitude: u8 = self.dx as u8;
-                let bounds_collision: bool = u8::MAX - self.width + 1 - dx_magnitude > self.x;
-
-                if bounds_collision {
-                    self.x += dx_magnitude;
-                    self.dx -= Self::FRICTION;
-                } else {
-                    self.x = u8::MAX - self.width + 1;
-                    self.dx = 0;
-                }
-
-            }
-            std::cmp::Ordering::Less => {
-
-                let dx_magnitude: u8 = (self.dx * -1) as u8;
-                let bounds_collision: bool = self.x > dx_magnitude;
-
-                if bounds_collision {
-                    self.x -= dx_magnitude;
-                    self.dx += Self::FRICTION;
-                } else {
-                    self.x = 0;
-                    self.dx = 0;
-                }
-
-            }
-        }
-
-        match self.dy.cmp(&0) {
-            std::cmp::Ordering::Equal => (), 
-            std::cmp::Ordering::Greater => {
-
-                let dy_magnitude: u8 = self.dy as u8;
-                let bounds_collision: bool = u8::MAX - self.height + 1 - dy_magnitude > self.y;
-
-                if bounds_collision {
-                    self.y += dy_magnitude;
-                } else {
-                    self.y = u8::MAX - self.height + 1;
-                    self.dy = 0;
-                }
-
-            }
-            std::cmp::Ordering::Less => {
-
-                let dy_magnitude: u8 = (self.dy * -1) as u8;
-                let bounds_collision: bool = self.y > dy_magnitude;
-
-                if bounds_collision {
-                    self.y -= dy_magnitude;
-                } else {
-                    self.y = 0;
-                    self.dy = 0;
-                }
-
-            }
-        }
-
-    }
-
-    fn fall(&mut self) {
-        self.dy += Self::GRAVITY;
-    }
-
-    fn jump(&mut self) {
-        self.dy = Self::JUMP;
-    }
-
-    fn walk_left(&mut self) {
-        self.dx = -5;
-    }
-
-    fn walk_right(&mut self) {
-        self.dx = 5; 
     }
 
 }
@@ -359,9 +454,12 @@ impl Client {
     fn parse_binary(buf: &[u8], idx: usize) -> Option<ClientMessage> {
 
         match buf[0] {
-            0 => Some(ClientMessage::Jump(idx)),
-            1 => Some(ClientMessage::WalkLeft(idx)),
-            2 => Some(ClientMessage::WalkRight(idx)),
+            0 => Some(ClientMessage::UpStart(idx)),
+            1 => Some(ClientMessage::UpEnd(idx)),
+            2 => Some(ClientMessage::LeftStart(idx)),
+            3 => Some(ClientMessage::LeftEnd(idx)),
+            4 => Some(ClientMessage::RightStart(idx)),
+            5 => Some(ClientMessage::RightEnd(idx)),
             _ => None,
         }
 
