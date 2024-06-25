@@ -25,7 +25,7 @@ ws.onmessage = (e: MessageEvent) => {
 
 document.onkeydown = (e: KeyboardEvent) => {
 
-    if(!ws.OPEN) {
+    if(!ws.OPEN || e.repeat) {
         return;
     }
 
@@ -34,10 +34,30 @@ document.onkeydown = (e: KeyboardEvent) => {
             send_client_event(ws, 0);
             break;
         case("a"):
-            send_client_event(ws, 1);
+            send_client_event(ws, 2);
             break;
         case("d"):
-            send_client_event(ws, 2);
+            send_client_event(ws, 4);
+            break;
+    }
+    
+};
+
+document.onkeyup = (e: KeyboardEvent) => {
+
+    if(!ws.OPEN) {
+        return;
+    }
+
+    switch(e.key) {
+        case("w"):
+            send_client_event(ws, 1);
+            break;
+        case("a"):
+            send_client_event(ws, 3);
+            break;
+        case("d"):
+            send_client_event(ws, 5);
             break;
     }
     
