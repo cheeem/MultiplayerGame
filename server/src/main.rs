@@ -44,10 +44,35 @@ enum ClientMessage {
 //     Jumping, 
 // }
 
+enum HorizontalCollision {
+    None,
+    Left,
+    Right,
+}
+
+enum VerticalCollision {
+    None,
+    Up,
+    Down,
+}
+
+// enum HortizontalMovementDirection {
+//     None, 
+//     Right,
+//     Left, 
+// }
+
+// enum VerticalMovementDirection {
+//     None, 
+//     Up, 
+//     Down,
+// }
+
 #[derive(Debug)]
 struct User {
+    // channels
     send_to_client: mpsc::Sender<Vec<u8>>,
-    //
+    // entity
     x: u8,
     y: u8,
     dx: i8,
@@ -55,7 +80,9 @@ struct User {
     width: u8,
     height: u8,
     weight: i8,
-    grounded: bool,
+    // controls & state
+    jump_buffer_ticks: u8,
+    coyote_ticks: u8,
     holding_left: bool, 
     holding_right: bool, 
 }
@@ -72,9 +99,13 @@ struct Client {
     send_to_game: mpsc::Sender<ClientMessage>,
 }
 
+const GRAVITY: i8 = 2;
+
 impl User {
 
-    const GRAVITY: i8 = 2;
+    const JUMP_BUFFER_TICKS: u8 = 3;
+    const COYOTE_TICKS: u8 = 3;
+
     const JUMP_FORCE: i8 = -40;
     const JUMP_CUTOFF: i8 = 2;
 
@@ -85,70 +116,55 @@ impl User {
     fn new(send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
 
         Self {
+            // channels
             send_to_client,
+            // entity
             x: 0,
             y: 0,
             dx: 0,
-            dy: 0,
+            dy: GRAVITY,
             width: 10, 
             height: 10, 
             weight: 2,
-            grounded: false,            
+            // control & state
+            jump_buffer_ticks: 0,
+            coyote_ticks: 0,          
             holding_left: false,
             holding_right: false,
         }
 
     }
 
-    fn tick(&mut self) { 
+    fn tick(&mut self) {
 
-        self.fall(); 
+        let mut horizontal_collision: HorizontalCollision = HorizontalCollision::None;
+        let mut vertical_collision: VerticalCollision = VerticalCollision::None;
 
-        if self.holding_left {
-            self.run_left();
-        }
-
-        if self.holding_right {
-            self.run_right();
-        }
+        // let hortizontal_movement_direction: HortizontalMovementDirection = match self.dx.cmp(&0) {
+        //     std::cmp::Ordering::Equal => HortizontalMovementDirection::None,
+        //     std::cmp::Ordering::Greater => HortizontalMovementDirection::Right,
+        //     std::cmp::Ordering::Less => HortizontalMovementDirection
+        // }
 
         match self.dx.cmp(&0) {
             std::cmp::Ordering::Equal => (), 
             std::cmp::Ordering::Greater => {
 
-                let dx_magnitude: u8 = self.dx as u8;
-                let no_bounds_collision: bool = u8::MAX - self.width + 1 - dx_magnitude > self.x;
+                let no_bounds_collision: bool = u8::MAX - self.width + 1 - self.dx as u8 > self.x;
 
-                if no_bounds_collision {
-
-                    if self.holding_right == false {
-                        self.end_run_right();
-                    }
-
-                    self.x += dx_magnitude;
-
-                } else {
+                if !no_bounds_collision {
+                    horizontal_collision = HorizontalCollision::Right;
                     self.x = u8::MAX - self.width + 1;
-                    self.dx = 0;
                 }
 
             }
             std::cmp::Ordering::Less => {
 
-                let dx_magnitude: u8 = (self.dx * -1) as u8;
-                let no_bounds_collision: bool = self.x > dx_magnitude;
+                let bounds_collision: bool = self.x <= (self.dx * -1) as u8;
 
-                if no_bounds_collision {
-
-                    if self.holding_left == false {
-                        self.end_run_left();
-                    }
-
-                    self.x -= dx_magnitude;
-
-                } else {
+                if bounds_collision {
+                    horizontal_collision = HorizontalCollision::Left;
                     self.x = 0;
-                    self.dx = 0;
                 }
 
             }
@@ -158,50 +174,126 @@ impl User {
             std::cmp::Ordering::Equal => (), 
             std::cmp::Ordering::Greater => {
 
-                let dy_magnitude: u8 = self.dy as u8;
-                let no_bounds_collision: bool = u8::MAX - self.height + 1 - dy_magnitude > self.y;
+                let no_bounds_collision: bool = u8::MAX - self.height + 1 - self.dy as u8 > self.y;
 
-                if no_bounds_collision {
-
-                    self.y += dy_magnitude;
-
-                    self.grounded = false;
-
-                } else {
-
+                if !no_bounds_collision {
+                    vertical_collision = VerticalCollision::Down;
                     self.y = u8::MAX - self.height + 1;
-                    self.dy = 0;
-                    
-                    self.grounded = true;
-
                 }
 
             }
             std::cmp::Ordering::Less => {
 
-                let dy_magnitude: u8 = (self.dy * -1) as u8;
-                let no_bounds_collision: bool = self.y > dy_magnitude;
+                let bounds_collision: bool = self.y <= (self.dy * -1) as u8;
 
-                if no_bounds_collision {
-                    self.y -= dy_magnitude;
-                } else {
+                if bounds_collision {
+                    vertical_collision = VerticalCollision::Up;
                     self.y = 0;
-                    self.dy = 0;
                 }
 
             }
         }
 
+        self.fall();
+
+        // maybe check if grounded and do something different if in air
+        // or move inside horizontal collision :: none
+        if self.holding_left {
+            self.run_left();
+        }
+
+        if self.holding_right {
+            self.run_right();
+        }
+
+        if self.jump_buffer_ticks > 0 {
+
+            if self.coyote_ticks > 0 { 
+                self.jump();
+            } else {
+                self.jump_buffer_ticks -= 1;
+            }
+
+        }
+
+        match horizontal_collision {
+            HorizontalCollision::None => {
+                
+                match self.dx.cmp(&0) {
+                    std::cmp::Ordering::Equal => (),
+                    std::cmp::Ordering::Greater => {
+
+                        if self.holding_left == false {
+                            self.end_run_right();
+                        }
+
+                        self.x += self.dx as u8;
+    
+                    }
+                    std::cmp::Ordering::Less => {
+
+                        if self.holding_left == false {
+                            self.end_run_left();
+                        }
+
+                        self.x -= (self.dx * -1) as u8;
+    
+                    }
+                }
+
+            }
+            HorizontalCollision::Left => {
+                self.dx = 0;
+            },
+            HorizontalCollision::Right => {
+                self.dx = 0;
+            },
+        }
+
+        match vertical_collision {
+            VerticalCollision::None => {
+
+                if self.coyote_ticks > 0 {
+                    self.coyote_ticks -= 1;
+                }
+
+                match self.dy.cmp(&0) {
+                    std::cmp::Ordering::Equal => (),
+                    std::cmp::Ordering::Greater => {
+                        self.y += self.dy as u8;
+                    }
+                    std::cmp::Ordering::Less => {
+                        self.y -= (self.dy * -1) as u8;
+                    }
+                }
+
+            }
+            VerticalCollision::Down => {
+
+                self.dy = 0;
+
+                if self.jump_buffer_ticks > 0 {
+                    self.jump();
+                } else {
+                    self.coyote_ticks = Self::COYOTE_TICKS;
+                }
+
+            },
+            VerticalCollision::Up => {
+                self.dy = 0;
+            },
+        }
+
     }
 
     fn fall(&mut self) {
-        self.dy += Self::GRAVITY;
+        self.dy += GRAVITY;
     }
 
     fn jump(&mut self) {
-        if self.grounded {
-            self.dy = Self::JUMP_FORCE / self.weight;
-        }
+        self.dy = Self::JUMP_FORCE / self.weight;
+        self.coyote_ticks = 0;
+        self.jump_buffer_ticks = 0;
     }
 
     fn end_jump(&mut self) {
@@ -277,7 +369,7 @@ impl Game {
                             }
 
                         },
-                        ClientMessage::UpStart(idx) => { game.users[idx].as_mut().map(|user| user.jump()); },
+                        ClientMessage::UpStart(idx) => { game.users[idx].as_mut().map(|user| user.jump_buffer_ticks = User::JUMP_BUFFER_TICKS); },
                         ClientMessage::UpEnd(idx) => { game.users[idx].as_mut().map(|user| user.end_jump()); },
                         ClientMessage::LeftStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = true ); },
                         ClientMessage::LeftEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = false); },
