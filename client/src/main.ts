@@ -2,8 +2,11 @@ const ws: WebSocket = new WebSocket('ws://localhost:3000');
 const canvas: HTMLCanvasElement = document.querySelector("canvas")!;
 const ctx: CanvasRenderingContext2D = canvas.getContext("2d")!;
 
-canvas.width = 256;
-canvas.height = 256;
+const u8_max: number = 255;
+const factor: number = 2;
+
+canvas.width = u8_max * factor;
+canvas.height = u8_max * factor;
 
 const COLORS = ["red", "blue", "green", "yellow", "purple"];
 
@@ -76,11 +79,11 @@ function render() {
 
         const color_idx: number = buf[i];
 
-        const x: number = buf[i+1];
-        const y: number = buf[i+2];
+        const x: number = buf[i+1] * factor;
+        const y: number = buf[i+2] * factor;
 
-        const width: number = buf[i+3];
-        const height: number = buf[i+4];
+        const width: number = buf[i+3] * factor;
+        const height: number = buf[i+4] * factor;
 
         ctx.fillStyle = COLORS[color_idx];
         ctx.fillRect(x, y, width, height);
