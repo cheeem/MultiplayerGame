@@ -1,13 +1,25 @@
+
+
+#[derive(Debug)]
 pub enum HorizontalCollision {
     None,
     Left,
     Right,
 }
 
+#[derive(Debug)]
 pub enum VerticalCollision {
     None,
     Up,
     Down,
+}
+
+#[derive(Debug)]
+pub struct StaticEntity {
+    pub x: u8,
+    pub y: u8,
+    pub width: u8,
+    pub height: u8,
 }
 
 #[derive(Debug)]
@@ -21,14 +33,9 @@ pub struct DynamicEntity {
     pub weight: i8,
 }
 
-#[derive(Debug)]
-pub struct StaticEntity {
-    pub x: u8,
-    pub y: u8,
-    pub width: u8,
-    pub height: u8,
-}
-
+// could refactor to only check left or right / up or down side
+// this would allow you to check self.dx.cmp one for bounds and static entities
+// might not work for dynamic entities, might have to check side
 impl DynamicEntity {
 
     pub fn horizontal_bounds_collision(&mut self) -> HorizontalCollision {
@@ -43,8 +50,7 @@ impl DynamicEntity {
 
                 if bounds_collision {
                     collision = HorizontalCollision::Right;
-                    self.x = u8::MAX - self.width + 1;
-                    self.dx = 0;
+                    self.x = u8::MAX - self.width;
                 }
 
             }
@@ -55,7 +61,6 @@ impl DynamicEntity {
                 if bounds_collision {
                     collision = HorizontalCollision::Left;
                     self.x = 0;
-                    self.dx = 0;
                 }
 
             }
@@ -77,8 +82,7 @@ impl DynamicEntity {
 
                 if bounds_collision {
                     collision = VerticalCollision::Down;
-                    self.y = u8::MAX - self.height + 1;
-                    self.dy = 0;
+                    self.y = u8::MAX - self.height;
                 }
 
             }
@@ -89,7 +93,6 @@ impl DynamicEntity {
                 if bounds_collision {
                     collision = VerticalCollision::Up;
                     self.y = 0;
-                    self.dy = 0;
                 }
 
             }
@@ -99,22 +102,84 @@ impl DynamicEntity {
 
     }
 
-    fn aabb_collision(&self, other: &DynamicEntity) -> bool {
-        self.x < other.x + other.width &&
-        self.x + self.width > other.x &&
-        self.y < other.y + other.height &&
-        self.y + self.height > other.y
+    pub fn hortizonal_static_collision(&mut self, other: &StaticEntity) -> HorizontalCollision {
+
+        let mut collision: HorizontalCollision = HorizontalCollision::None;
+
+        match self.dx.cmp(&0) {
+            std::cmp::Ordering::Equal => (), 
+            std::cmp::Ordering::Greater => {
+
+                let static_collision: bool = 
+                    self.x + (self.dx as u8) < other.x + other.width &&
+                    self.x + (self.dx as u8) + self.width > other.x &&
+                    self.y < other.y + other.height &&
+                    self.y + self.height > other.y;
+
+                if static_collision {
+                    collision = HorizontalCollision::Right;
+                    self.x = other.x - self.width;
+                }
+
+            }
+            std::cmp::Ordering::Less => {
+
+                let static_collision: bool = 
+                    self.x - ((self.dx * -1) as u8) < other.x + other.width &&
+                    self.x - ((self.dx * -1) as u8) + self.width > other.x &&
+                    self.y < other.y + other.height &&
+                    self.y + self.height > other.y;
+
+                if static_collision {
+                    collision = HorizontalCollision::Left;
+                    self.x = other.x + other.width;
+                }
+
+            }
+        }
+
+        return collision;
+
     }
 
-}
+    pub fn vertical_static_collision(&mut self, other: &StaticEntity) -> VerticalCollision {
+        
+        let mut collision: VerticalCollision = VerticalCollision::None;
 
-impl StaticEntity {
+        match self.dy.cmp(&0) {
+            std::cmp::Ordering::Equal => (), 
+            std::cmp::Ordering::Greater => {
 
-    fn aabb_collision(&self, other: &DynamicEntity) -> bool {
-        self.x < other.x + other.width &&
-        self.x + self.width > other.x &&
-        self.y < other.y + other.height &&
-        self.y + self.height > other.y
+                let static_collision: bool = 
+                    self.x < other.x + other.width &&
+                    self.x + self.width > other.x &&
+                    self.y + (self.dy as u8) < other.y + other.height &&
+                    self.y + (self.dy as u8) + self.height > other.y;
+
+                if static_collision {
+                    collision = VerticalCollision::Down;
+                    self.y = other.y - self.height;
+                }
+
+            }
+            std::cmp::Ordering::Less => {
+
+                let static_collision: bool = 
+                    self.x < other.x + other.width &&
+                    self.x + self.width > other.x &&
+                    self.y - ((self.dy * -1) as u8) < other.y + other.height &&
+                    self.y - ((self.dy * -1) as u8) + self.height > other.y;
+
+                if static_collision {
+                    collision = VerticalCollision::Up;
+                    self.y = other.y + other.height;
+                }
+
+            }
+        }
+
+        return collision;
+
     }
 
 }

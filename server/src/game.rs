@@ -20,7 +20,7 @@ impl Game {
         };
 
         game.platforms.push(platform::Platform { 
-            entity: StaticEntity { x: 50, y: 20, width: 50, height: 5 }, 
+            entity: StaticEntity { x: 50, y: 225, width: 50, height: 30 }, 
         });
 
         let mut timer: tokio::time::Interval = tokio::time::interval(tokio::time::Duration::from_millis(25));
@@ -133,6 +133,14 @@ impl Game {
             buf.push(user.entity.y);
             buf.push(user.entity.width);
             buf.push(user.entity.height);
+        }
+
+        for platform in self.platforms.iter() {
+            buf.push(1);
+            buf.push(platform.entity.x);
+            buf.push(platform.entity.y);
+            buf.push(platform.entity.width);
+            buf.push(platform.entity.height);
         }
 
         return buf;
