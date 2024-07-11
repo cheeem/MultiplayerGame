@@ -13,8 +13,8 @@ use crate::{ entity, game, platform };
 pub struct User {
     // channels
     pub send_to_client: mpsc::Sender<Vec<u8>>,
-    // entity
-    pub entity: entity::DynamicEntity,
+    // dynamic entity
+    pub dynamic_entity: entity::DynamicEntity,
     // controls & state
     pub jump_buffer_ticks: u8,
     coyote_ticks: u8,
@@ -27,30 +27,34 @@ impl User {
     pub const JUMP_BUFFER_TICKS: u8 = 5;
     const COYOTE_TICKS: u8 = 3;
 
-    const JUMP_FORCE: i8 = -40;
-    const JUMP_CUTOFF: i8 = 2;
+    const JUMP_FORCE: f32 = -40.0;
+    const JUMP_CUTOFF: f32 = 0.5;
 
-    const RUN_START_FORCE: i8 = 2;
-    const RUN_END_FORCE: i8 = 4;
-    const RUN_MAX_SPEED: i8 = 8;
+    const RUN_START_FORCE: f32 = 2.0;
+    const RUN_END_FORCE: f32 = 4.0;
+    const RUN_MAX_SPEED: f32 = 8.0;
 
     pub fn new(send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
 
-        let entity: entity::DynamicEntity = entity::DynamicEntity {
-            x: 0,
-            y: 0,
-            dx: 0,
+        let entity: entity::Entity = entity::Entity {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0, 
+            height: 10.0, 
+        };
+
+        let dynamic_entity: entity::DynamicEntity = entity::DynamicEntity {
+            entity: entity,
+            dx: 0.0,
             dy: game::GRAVITY,
-            width: 10, 
-            height: 10, 
-            weight: 2,
+            weight: 2.0,
         };
 
         Self {
             // channels
             send_to_client,
             // entity
-            entity,
+            dynamic_entity,
             // control & state
             jump_buffer_ticks: 0,
             coyote_ticks: 0,          
@@ -62,88 +66,118 @@ impl User {
 
     pub fn tick(&mut self, platforms: &[platform::Platform]) {
 
-        // let hortizontal_movement_direction: HortizontalMovementDirection = match self.dx.cmp(&0) {
-        //     std::cmp::Ordering::Equal => HortizontalMovementDirection::None,
-        //     std::cmp::Ordering::Greater => HortizontalMovementDirection::Right,
-        //     std::cmp::Ordering::Less => HortizontalMovementDirection
+        // issue with collision detection is coming from bounds checks setting the x and y values before other checks are made 
+
+        let mut horizontal_collision: entity::HorizontalCollision = self.dynamic_entity.horizontal_bounds_collision();
+        let mut vertical_collision: entity::VerticalCollision = self.dynamic_entity.vertical_bounds_collision();
+
+        let mut horizontal_time: f32 = f32::INFINITY;
+        let mut vertical_time: f32 = f32::INFINITY;
+        
+        // for platform in platforms {
+        //     match (&horizontal_collision, &vertical_collision) {
+        //         (entity::HorizontalCollision::None, entity::VerticalCollision::None) => {
+        //             horizontal_collision = self.entity.horizonal_static_collision(&platform.entity);
+        //             vertical_collision = self.entity.vertical_static_collision(&platform.entity);
+        //         }
+        //         (entity::HorizontalCollision::None, _) => {
+        //             horizontal_collision = self.entity.horizonal_static_collision(&platform.entity);
+        //         }
+        //         (_, entity::VerticalCollision::None) => {
+        //             vertical_collision = self.entity.vertical_static_collision(&platform.entity);
+        //         }
+        //         _ => break
+        //     }
         // }
 
-        let mut horizontal_collision: entity::HorizontalCollision = self.entity.horizontal_bounds_collision();
-        let mut vertical_collision: entity::VerticalCollision = self.entity.vertical_bounds_collision();
-
         for platform in platforms {
-            match (&horizontal_collision, &vertical_collision) {
-                (entity::HorizontalCollision::None, entity::VerticalCollision::None) => {
-                    horizontal_collision = self.entity.hortizonal_static_collision(&platform.entity);
-                    vertical_collision = self.entity.vertical_static_collision(&platform.entity);
+            
+            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&platform.entity, entity::EntityType::Platform);
+            
+            if horizontal.is_some() {
+                if time < horizontal_time {
+                    horizontal_time = time;
+                    horizontal_collision = horizontal;
                 }
-                (entity::HorizontalCollision::None, _) => {
-                    horizontal_collision = self.entity.hortizonal_static_collision(&platform.entity);
-                }
-                (_, entity::VerticalCollision::None) => {
-                    vertical_collision = self.entity.vertical_static_collision(&platform.entity);
-                }
-                _ => {
-                    break;
-                }
+            } else if vertical.is_some() {
+                if time < vertical_time {
+                    vertical_time = time;
+                    vertical_collision = vertical;
+                }                
             }
+
         }
 
         match horizontal_collision {
             entity::HorizontalCollision::None => {
-                
-                match self.entity.dx.cmp(&0) {
-                    std::cmp::Ordering::Equal => (),
-                    std::cmp::Ordering::Greater => {
 
-                        self.entity.x += self.entity.dx as u8;
+                self.dynamic_entity.entity.x += self.dynamic_entity.dx;
+                
+                match self.dynamic_entity.dx.partial_cmp(&0.0) {
+                    Some(std::cmp::Ordering::Greater) => {
 
                         if self.holding_right == false {
                             self.end_run_right();
                         }
     
                     }
-                    std::cmp::Ordering::Less => {
-
-                        self.entity.x -= (self.entity.dx * -1) as u8;
+                    Some(std::cmp::Ordering::Less) => {
 
                         if self.holding_left == false {
                             self.end_run_left();
                         }
     
                     }
+                    _ => (),
                 }
 
             }
-            entity::HorizontalCollision::Left => {
-                self.entity.dx = 0;
+            entity::HorizontalCollision::Left(collision_entity) => {
+
+                self.dynamic_entity.entity.x = if let entity::CollisionEntity::Bounds = collision_entity {
+                    game::BOUNDS_X_MIN
+                } else {
+                    let entity: &entity::Entity = collision_entity.entity().unwrap();
+                    entity.x + entity.width
+                };
+            
+                self.dynamic_entity.dx = 0.0;
+
             },
-            entity::HorizontalCollision::Right => {
-                self.entity.dx = 0;
+            entity::HorizontalCollision::Right(collision_entity) => {
+
+                self.dynamic_entity.entity.x = if let entity::CollisionEntity::Bounds = collision_entity {
+                    game::BOUNDS_X_MAX - self.dynamic_entity.entity.width
+                } else {
+                    let entity: &entity::Entity = collision_entity.entity().unwrap();
+                    entity.x - self.dynamic_entity.entity.width
+                };
+
+                self.dynamic_entity.dx = 0.0;
+
             },
         }
 
         match vertical_collision {
             entity::VerticalCollision::None => {
 
-                match self.entity.dy.cmp(&0) {
-                    std::cmp::Ordering::Equal => (),
-                    std::cmp::Ordering::Greater => {
-                        self.entity.y += self.entity.dy as u8;
-                    }
-                    std::cmp::Ordering::Less => {
-                        self.entity.y -= (self.entity.dy * -1) as u8;
-                    }
-                }
+                self.dynamic_entity.entity.y += self.dynamic_entity.dy;
 
                 if self.coyote_ticks > 0 {
                     self.coyote_ticks -= 1;
                 }
 
             }
-            entity::VerticalCollision::Down => {
+            entity::VerticalCollision::Down(collision_entity) => {
 
-                self.entity.dy = 0;
+                self.dynamic_entity.entity.y = if let entity::CollisionEntity::Bounds = collision_entity {
+                    game::BOUNDS_Y_MAX - self.dynamic_entity.entity.height
+                } else {
+                    let entity: &entity::Entity = collision_entity.entity().unwrap();
+                    entity.y - self.dynamic_entity.entity.height
+                };
+
+                self.dynamic_entity.dy = 0.0;
 
                 if self.jump_buffer_ticks > 0 {
                     self.jump();
@@ -152,8 +186,17 @@ impl User {
                 }
 
             },
-            entity::VerticalCollision::Up => {
-                self.entity.dy = 0;
+            entity::VerticalCollision::Up(collision_entity) => {
+
+                self.dynamic_entity.entity.y = if let entity::CollisionEntity::Bounds = collision_entity {
+                    game::BOUNDS_Y_MIN
+                } else {
+                    let entity: &entity::Entity = collision_entity.entity().unwrap();
+                    entity.y + entity.height
+                };
+
+                self.dynamic_entity.dy = 0.0;
+
             },
         }
 
@@ -182,46 +225,66 @@ impl User {
     }
 
     fn fall(&mut self) {
-        self.entity.dy += game::GRAVITY;
+        self.dynamic_entity.dy += game::GRAVITY;
     }
 
     fn jump(&mut self) {
-        self.entity.dy = Self::JUMP_FORCE / self.entity.weight;
+        self.dynamic_entity.dy = Self::JUMP_FORCE / self.dynamic_entity.weight;
         self.coyote_ticks = 0;
         self.jump_buffer_ticks = 0;
     }
 
     pub fn end_jump(&mut self) {
         // maybe check if actually jumping?
-        self.entity.dy /= Self::JUMP_CUTOFF;
+        self.dynamic_entity.dy *= Self::JUMP_CUTOFF;
     }
 
     fn run_left(&mut self) {
-        self.entity.dx = std::cmp::max(
-            -Self::RUN_MAX_SPEED, 
-            self.entity.dx - Self::RUN_START_FORCE / self.entity.weight,
-        );
+
+        let run_speed: f32 = self.dynamic_entity.dx - Self::RUN_START_FORCE / self.dynamic_entity.weight;
+        
+        self.dynamic_entity.dx = if run_speed > -Self::RUN_MAX_SPEED {
+            run_speed
+        } else {
+            -Self::RUN_MAX_SPEED
+        };
+
     }
 
     fn end_run_left(&mut self) {
-        self.entity.dx = std::cmp::min(
-            0, 
-            self.entity.dx + Self::RUN_END_FORCE / self.entity.weight,
-        ); 
+
+        let run_speed: f32 = self.dynamic_entity.dx + Self::RUN_END_FORCE / self.dynamic_entity.weight;
+
+        self.dynamic_entity.dx = if run_speed < 0.0 {
+            run_speed
+        } else {
+            0.0
+        };
+
     }
 
     fn run_right(&mut self) {
-        self.entity.dx = std::cmp::min(
-            Self::RUN_MAX_SPEED, 
-            self.entity.dx + Self::RUN_START_FORCE / self.entity.weight,
-        );
+        
+        let run_speed: f32 = self.dynamic_entity.dx + Self::RUN_START_FORCE / self.dynamic_entity.weight;
+        
+        self.dynamic_entity.dx = if run_speed < Self::RUN_MAX_SPEED {
+            run_speed
+        } else {
+            Self::RUN_MAX_SPEED
+        };
+
     }
 
     fn end_run_right(&mut self) {
-        self.entity.dx = std::cmp::max(
-            0, 
-            self.entity.dx - Self::RUN_END_FORCE / self.entity.weight,
-        ); 
+
+        let run_speed: f32 = self.dynamic_entity.dx - Self::RUN_END_FORCE / self.dynamic_entity.weight;
+
+        self.dynamic_entity.dx = if run_speed > 0.0 {
+            run_speed
+        } else {
+            0.0
+        };
+        
     }
 
 }

@@ -1,13 +1,25 @@
 use tokio::sync::mpsc;
-use crate::{ client, entity::StaticEntity, platform, user };
+use crate::{ client, entity, platform, user };
 
 pub struct Game {
     receive_from_client: mpsc::Receiver<client::Message>,
     users: Vec<Option<user::User>>,
-    platforms: Vec<platform::Platform>, 
+    platforms: &'static [platform::Platform], 
 }
 
-pub const GRAVITY: i8 = 2;
+pub const BOUNDS_X_MIN: f32 = 0.0;
+pub const BOUNDS_X_MAX: f32 = 255.0;
+pub const BOUNDS_Y_MIN: f32 = 0.0;
+pub const BOUNDS_Y_MAX: f32 = 255.0;
+
+pub const GRAVITY: f32 = 2.0;
+pub const TICK_DT: u64 = 20;
+
+const PLATFORMS: &'static [platform::Platform] = &[
+    platform::Platform {
+        entity: entity::Entity { x: 70.0, y: 245.0, width: 50.0, height: 5.0 },
+    }
+];
 
 impl Game {
 
@@ -16,14 +28,10 @@ impl Game {
         let mut game: Self = Self {
             receive_from_client,
             users: Vec::new(),
-            platforms: Vec::new(),
+            platforms: PLATFORMS,
         };
 
-        game.platforms.push(platform::Platform { 
-            entity: StaticEntity { x: 50, y: 225, width: 50, height: 30 }, 
-        });
-
-        let mut timer: tokio::time::Interval = tokio::time::interval(tokio::time::Duration::from_millis(25));
+        let mut timer: tokio::time::Interval = tokio::time::interval(tokio::time::Duration::from_millis(TICK_DT));
 
         loop {
             tokio::select! {
@@ -127,20 +135,32 @@ impl Game {
 
         let mut buf: Vec<u8> = Vec::new();
 
-        for user in self.users.iter().filter_map(|user| user.as_ref()) {
+        for entity in self.users
+            .iter()
+            .filter_map(|user| user.as_ref())
+            .map(|user| &user.dynamic_entity.entity) 
+        {
+                        
             buf.push(0);
-            buf.push(user.entity.x);
-            buf.push(user.entity.y);
-            buf.push(user.entity.width);
-            buf.push(user.entity.height);
+            buf.push(entity.x as u8);
+            buf.push(entity.y as u8);
+            buf.push(entity.width as u8);
+            buf.push(entity.height as u8);
+
         }
 
-        for platform in self.platforms.iter() {
+        for entity in self.platforms
+            .iter()
+            .map(|platform| &platform.entity) 
+        {
+            
             buf.push(1);
-            buf.push(platform.entity.x);
-            buf.push(platform.entity.y);
-            buf.push(platform.entity.width);
-            buf.push(platform.entity.height);
+
+            buf.push(entity.x as u8);
+            buf.push(entity.y as u8);
+            buf.push(entity.width as u8);
+            buf.push(entity.height as u8);
+
         }
 
         return buf;
