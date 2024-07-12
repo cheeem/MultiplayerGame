@@ -11,6 +11,8 @@ use crate::{ entity, game, platform };
 
 #[derive(Debug)]
 pub struct User {
+    // index 
+    pub idx: u8,
     // channels
     pub send_to_client: mpsc::Sender<Vec<u8>>,
     // dynamic entity
@@ -20,6 +22,7 @@ pub struct User {
     coyote_ticks: u8,
     pub holding_left: bool, 
     pub holding_right: bool, 
+    pub holding_down: bool,
 }
 
 impl User {
@@ -32,9 +35,9 @@ impl User {
 
     const RUN_START_FORCE: f32 = 2.0;
     const RUN_END_FORCE: f32 = 4.0;
-    const RUN_MAX_SPEED: f32 = 8.0;
+    const RUN_MAX_SPEED: f32 = 5.0;
 
-    pub fn new(send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
+    pub fn new(idx: u8, send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
 
         let entity: entity::Entity = entity::Entity {
             x: 0.0,
@@ -44,13 +47,15 @@ impl User {
         };
 
         let dynamic_entity: entity::DynamicEntity = entity::DynamicEntity {
-            entity: entity,
+            entity,
             dx: 0.0,
             dy: game::GRAVITY,
-            weight: 2.0,
+            weight: 3.0,
         };
 
         Self {
+            // index 
+            idx,
             // channels
             send_to_client,
             // entity
@@ -60,16 +65,15 @@ impl User {
             coyote_ticks: 0,          
             holding_left: false,
             holding_right: false,
+            holding_down: false,
         }
 
     }
 
-    pub fn tick(&mut self, platforms: &[platform::Platform]) {
+    pub fn tick<'a, 'b>(&'a mut self, users: impl Iterator<Item = &'b User>, platforms: &'b [platform::Platform]) {
 
-        // issue with collision detection is coming from bounds checks setting the x and y values before other checks are made 
-
-        let mut horizontal_collision: entity::HorizontalCollision = self.dynamic_entity.horizontal_bounds_collision();
-        let mut vertical_collision: entity::VerticalCollision = self.dynamic_entity.vertical_bounds_collision();
+        let mut horizontal_collision: entity::HorizontalCollision = entity::HorizontalCollision::None;
+        let mut vertical_collision: entity::VerticalCollision = entity::VerticalCollision::None;
 
         let mut horizontal_time: f32 = f32::INFINITY;
         let mut vertical_time: f32 = f32::INFINITY;
@@ -90,9 +94,9 @@ impl User {
         //     }
         // }
 
-        for platform in platforms {
+        for user in users {
             
-            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&platform.entity, entity::EntityType::Platform);
+            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&user.dynamic_entity.entity, entity::EntityType::User);
             
             if horizontal.is_some() {
                 if time < horizontal_time {
@@ -106,6 +110,29 @@ impl User {
                 }                
             }
 
+        }
+
+        for platform in platforms {
+            
+            let (time, _, vertical) = self.dynamic_entity.swept_collision(&platform.entity, entity::EntityType::Platform);
+            
+            if self.dynamic_entity.dy > 0.0 && vertical.is_some() {
+                if self.holding_down {
+                    self.holding_down = false;
+                } else if time < vertical_time {
+                    vertical_time = time;
+                    vertical_collision = vertical;
+                }                
+            }
+
+        }
+
+        if let entity::HorizontalCollision::None = horizontal_collision {
+            horizontal_collision = self.dynamic_entity.horizontal_bounds_collision();
+        }
+
+        if let entity::VerticalCollision::None = vertical_collision {
+            vertical_collision = self.dynamic_entity.vertical_bounds_collision();
         }
 
         match horizontal_collision {

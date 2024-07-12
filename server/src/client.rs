@@ -12,15 +12,17 @@ pub enum Message {
     },
     UpStart(usize),
     UpEnd(usize),
+    DownStart(usize),
+    DownEnd(usize),
     LeftStart(usize),
     LeftEnd(usize),
     RightStart(usize),
     RightEnd(usize),
 }
 
-
 pub struct Client {
     idx: usize,
+    idx_u8: u8,
     ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     receive_from_game: mpsc::Receiver<Vec<u8>>,
     send_to_game: mpsc::Sender<Message>,
@@ -59,6 +61,7 @@ impl Client {
 
         let mut client: Self = Self {
             idx,
+            idx_u8: idx as u8,
             ws,
             receive_from_game,
             send_to_game,
@@ -70,10 +73,14 @@ impl Client {
 
                 buf = client.receive_from_game.recv() => {
 
-                    let buf: Vec<u8> = match buf {
+                    let mut buf: Vec<u8> = match buf {
                         Some(buf) => buf,
                         None => return println!("no render buffer found"),
                     };
+
+                    // footer
+                    buf.push(0); // placeholder, add flags / value if needed later
+                    buf.push(client.idx_u8);
 
                     if let Err(err) = client.ws.send(tungstenite::Message::binary(buf)).await {
                         return println!("failed to send on websocket stream: {:#?}", err);
@@ -116,10 +123,12 @@ impl Client {
         match buf[0] {
             0 => Some(Message::UpStart(idx)),
             1 => Some(Message::UpEnd(idx)),
-            2 => Some(Message::LeftStart(idx)),
-            3 => Some(Message::LeftEnd(idx)),
-            4 => Some(Message::RightStart(idx)),
-            5 => Some(Message::RightEnd(idx)),
+            2 => Some(Message::DownStart(idx)),
+            3 => Some(Message::DownEnd(idx)),
+            4 => Some(Message::LeftStart(idx)),
+            5 => Some(Message::LeftEnd(idx)),
+            6 => Some(Message::RightStart(idx)),
+            7 => Some(Message::RightEnd(idx)),
             _ => None,
         }
 

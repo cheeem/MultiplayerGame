@@ -1,3 +1,5 @@
+use crate::game;
+
 pub enum EntityType {
     User, 
     Platform,
@@ -86,7 +88,7 @@ impl DynamicEntity {
         match self.dx.partial_cmp(&0.0) {
             Some(std::cmp::Ordering::Greater) => {
 
-                let bounds_collision: bool = 255.0 - self.entity.width - self.dx < self.entity.x;
+                let bounds_collision: bool = game::BOUNDS_X_MAX - self.entity.width - self.dx < self.entity.x;
 
                 if bounds_collision {
                     collision = HorizontalCollision::Right(CollisionEntity::Bounds);
@@ -116,7 +118,7 @@ impl DynamicEntity {
         match self.dy.partial_cmp(&0.0) {
             Some(std::cmp::Ordering::Greater) => {
 
-                let bounds_collision: bool = 255.0 - self.entity.height - self.dy < self.entity.y;
+                let bounds_collision: bool = game::BOUNDS_Y_MAX - self.entity.height - self.dy < self.entity.y;
 
                 if bounds_collision {
                     collision = VerticalCollision::Down(CollisionEntity::Bounds);
@@ -321,18 +323,14 @@ impl DynamicEntity {
 
         let (horizontal_collision, vertical_collision) = if x_entry_time > y_entry_time {
             if self.dx > 0.0 {
-                // (-1, 0)
                 (HorizontalCollision::Right(entity_type.to_collision_entity(other)), VerticalCollision::None)
             } else {
-                // (1, 0)
                 (HorizontalCollision::Left(entity_type.to_collision_entity(other)), VerticalCollision::None)
             }
         } else {
             if self.dy > 0.0 {
-                // (0, -1)
                 (HorizontalCollision::None, VerticalCollision::Down(entity_type.to_collision_entity(other)))
             } else {
-                // (0, 1)
                 (HorizontalCollision::None, VerticalCollision::Up(entity_type.to_collision_entity(other)))
             }
         };
@@ -344,122 +342,5 @@ impl DynamicEntity {
         )
 
     }
-
-    // pub fn swept_collision(&self, other: &Entity) -> (f32, HorizontalCollision, VerticalCollision) {
-
-    //     let (x_entry_distance, x_exit_distance) = if self.dx > 0.0 { 
-    //         (
-    //             other.x - (self.entity.x + self.entity.width),
-    //             (other.x + other.width) - self.entity.x,
-    //         )
-    //     } else {
-    //         (
-    //             (other.x + other.width) - self.entity.x,
-    //             other.x - (self.entity.x + self.entity.width),
-    //         ) 
-    //     };
-
-    //     let (y_entry_distance, y_exit_distance) = if self.dy > 0.0 { 
-    //         (
-    //             other.y - (self.entity.y + self.entity.height), 
-    //             (other.y + other.height) - self.entity.y,
-    //         )
-    //     } else { 
-    //         (
-    //             (other.y + other.height) - self.entity.y,
-    //             other.y - (self.entity.y + self.entity.height),
-    //         )  
-    //     };
-
-    //     let (mut x_entry_time, x_exit_time) = if self.dx == 0.0 { 
-    //         (
-    //             std::f32::NEG_INFINITY,
-    //             std::f32::INFINITY,
-    //         )
-    //     } else {
-    //         (
-    //             x_entry_distance / self.dx,
-    //             x_exit_distance / self.dx,
-    //         )
-    //     };
-
-    //     let (mut y_entry_time, y_exit_time) = if self.dy == 0.0 {
-    //         (
-    //             std::f32::NEG_INFINITY,
-    //             std::f32::INFINITY,
-    //         )
-    //     } else { 
-    //         (
-    //             y_entry_distance / self.dy,
-    //             y_exit_distance / self.dy, 
-    //         )
-    //     };
-
-    //     if x_entry_time > 1.0 {
-    //         x_entry_time = f32::NEG_INFINITY;
-    //     }
-        
-    //     if y_entry_time > 1.0 {
-    //         y_entry_time = f32::NEG_INFINITY;
-    //     }
-
-    //     let entry_time: f32 = if x_entry_time > y_entry_time {
-    //         x_entry_time
-    //     } else {
-    //         y_entry_time
-    //     };
-
-    //     let exit_time: f32 = if x_exit_time < y_exit_time {
-    //         x_exit_time
-    //     } else {
-    //         y_exit_time
-    //     };
-
-    //     let no_collision: bool = 
-    //         (entry_time > exit_time) ||
-    //         (x_entry_time < 0.0 && y_entry_time < 0.0) || 
-    //         // Check that the bounding box started overlapped or not.
-    //         (x_entry_time < 0.0 && (self.entity.x + self.entity.width < other.x || self.entity.x > other.x + other.width)) ||
-    //         // Check that the bounding box started overlapped or not.
-    //         (y_entry_time < 0.0 && (self.entity.y + self.entity.height < other.y || self.entity.y > other.y + other.height));
-
-    //     // let no_collision: bool = entry_time > exit_time || x_entry_time < 0.0 && y_entry_time < 0.0 || x_entry_time > 1.0 || y_entry_time > 1.0;
-
-    //     if no_collision {
-    //         return (
-    //             1.0,
-    //             HorizontalCollision::None,
-    //             VerticalCollision::None,
-    //         );
-    //     }
-
-    //     let mut horizontal_collision: HorizontalCollision = HorizontalCollision::None;
-    //     let mut vertical_collision: VerticalCollision = VerticalCollision::None;
-
-    //     if x_entry_time > y_entry_time {
-
-    //         horizontal_collision = if x_entry_distance > 0.0 {
-    //             HorizontalCollision::Right(other)
-    //         } else {
-    //             HorizontalCollision::Left(other)
-    //         }
-
-    //     } else {
-
-    //         vertical_collision = if y_entry_distance > 0.0 {
-    //             VerticalCollision::Down(other)
-    //         } else {
-    //             VerticalCollision::Up(other)
-    //         }
-            
-    //     }
-
-    //     return (
-    //         entry_time,
-    //         horizontal_collision,
-    //         vertical_collision,
-    //     );
-
-    // }
 
 }

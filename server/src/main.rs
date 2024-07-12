@@ -1,11 +1,12 @@
 use tokio;
 use tokio::sync::mpsc;
 
-mod entity;
-mod user;
-mod platform;
-mod game;
 mod client;
+mod entity;
+mod game;
+mod platform;
+mod slice;
+mod user;
 
 const ADDR: &'static str = "127.0.0.1:3000";
 
