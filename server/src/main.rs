@@ -1,10 +1,12 @@
 use tokio;
 use tokio::sync::mpsc;
 
+mod bullet;
 mod client;
 mod entity;
 mod game;
 mod platform;
+mod ray;
 mod slice;
 mod user;
 

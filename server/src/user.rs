@@ -96,7 +96,7 @@ impl User {
 
         for user in users {
             
-            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&user.dynamic_entity.entity, entity::EntityType::User);
+            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&user.dynamic_entity.entity, entity::CollisionType::User);
             
             if horizontal.is_some() {
                 if time < horizontal_time {
@@ -114,7 +114,7 @@ impl User {
 
         for platform in platforms {
             
-            let (time, _, vertical) = self.dynamic_entity.swept_collision(&platform.entity, entity::EntityType::Platform);
+            let (time, _, vertical) = self.dynamic_entity.swept_collision(&platform.entity, entity::CollisionType::Platform);
             
             if self.dynamic_entity.dy > 0.0 && vertical.is_some() {
                 if self.holding_down {

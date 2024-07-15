@@ -1,6 +1,6 @@
 use crate::game;
 
-pub enum EntityType {
+pub enum CollisionType {
     User, 
     Platform,
 }
@@ -42,7 +42,7 @@ pub struct DynamicEntity {
     pub weight: f32,
 }
 
-impl EntityType {
+impl CollisionType {
     fn to_collision_entity<'a, 'b>(&'a self, entity: &'b Entity) -> CollisionEntity<'b> {
         match self {
             Self::User => CollisionEntity::User(entity), 
@@ -221,7 +221,7 @@ impl DynamicEntity {
 
     // }
 
-    pub fn swept_collision<'a, 'b>(&'a self, other: &'b Entity, entity_type: EntityType) -> (f32, HorizontalCollision<'b>, VerticalCollision<'b>) {
+    pub fn swept_collision<'a, 'b>(&'a self, other: &'b Entity, collision_type: CollisionType) -> (f32, HorizontalCollision<'b>, VerticalCollision<'b>) {
 
         let horizontal_collision: HorizontalCollision = HorizontalCollision::None;
         let vertical_collision: VerticalCollision = VerticalCollision::None;
@@ -323,15 +323,15 @@ impl DynamicEntity {
 
         let (horizontal_collision, vertical_collision) = if x_entry_time > y_entry_time {
             if self.dx > 0.0 {
-                (HorizontalCollision::Right(entity_type.to_collision_entity(other)), VerticalCollision::None)
+                (HorizontalCollision::Right(collision_type.to_collision_entity(other)), VerticalCollision::None)
             } else {
-                (HorizontalCollision::Left(entity_type.to_collision_entity(other)), VerticalCollision::None)
+                (HorizontalCollision::Left(collision_type.to_collision_entity(other)), VerticalCollision::None)
             }
         } else {
             if self.dy > 0.0 {
-                (HorizontalCollision::None, VerticalCollision::Down(entity_type.to_collision_entity(other)))
+                (HorizontalCollision::None, VerticalCollision::Down(collision_type.to_collision_entity(other)))
             } else {
-                (HorizontalCollision::None, VerticalCollision::Up(entity_type.to_collision_entity(other)))
+                (HorizontalCollision::None, VerticalCollision::Up(collision_type.to_collision_entity(other)))
             }
         };
 

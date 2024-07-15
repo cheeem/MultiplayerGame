@@ -1,10 +1,11 @@
 use tokio::sync::mpsc;
-use crate::{ client, entity, platform, slice, user };
+use crate::{ bullet, client, entity, platform, ray, slice, user };
 use slice::IterPlucked;
 
 pub struct Game {
     receive_from_client: mpsc::Receiver<client::Message>,
     users: Vec<Option<user::User>>,
+    bullets: Vec<bullet::Bullet>, 
     platforms: &'static [platform::Platform], 
 }
 
@@ -35,6 +36,7 @@ impl Game {
         let mut game: Self = Self {
             receive_from_client,
             users: Vec::with_capacity(u8::MAX as usize),
+            bullets: Vec::new(),
             platforms: PLATFORMS,
         };
 
@@ -76,6 +78,7 @@ impl Game {
                         client::Message::LeftEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = false); },
                         client::Message::RightStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = true); },
                         client::Message::RightEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = false); },
+                        client::Message::Shoot(idx, x, y) => { game.bullets.push(bullet::Bullet { user_idx: idx, ray: ray::Ray::from_click_position(&game.users[idx].as_ref().unwrap().dynamic_entity.entity, x, y) }); }
                     }
 
                 },
@@ -88,9 +91,9 @@ impl Game {
                         continue;
                     }
 
-                    // for idx in 0..game.users.len() {
-                    //     game.users[idx].as_mut().unwrap().tick(&game.users.split_, &game.platforms);
-                    // }
+                    for bullet in &game.bullets {
+                        bullet.tick(&mut game.users, game.platforms);
+                    }
 
                     for idx in 0..game.users.len() {
 
@@ -148,6 +151,8 @@ impl Game {
                         Err(err) => return println!("failed to send render buffer: {:#?}", err),
                     }
 
+                    game.bullets.clear();
+
                 },
 
             }
@@ -170,14 +175,8 @@ impl Game {
             buf.push(entity.width as u8);
             buf.push(entity.height as u8);
 
-            let bytes_x: [u8; 2] = (entity.x as u16).to_be_bytes();
-            let bytes_y: [u8; 2] = (entity.y as u16).to_be_bytes();
-
-            buf.push(bytes_x[1]);
-            buf.push(bytes_x[0]);
-            buf.push(bytes_y[1]);
-            buf.push(bytes_y[0]);
-
+            buf.extend_from_slice(&(entity.x as u16).to_be_bytes());
+            buf.extend_from_slice(&(entity.y as u16).to_be_bytes());
 
         }
 
@@ -196,15 +195,8 @@ impl Game {
             buf.push(entity.width as u8);
             buf.push(entity.height as u8);
 
-            let bytes_x: [u8; 2] = (entity.x as u16).to_be_bytes();
-
-            buf.push(bytes_x[1]);
-            buf.push(bytes_x[0]);
-
-            let bytes_y: [u8; 2] = (entity.y as u16).to_be_bytes();
-
-            buf.push(bytes_y[1]);
-            buf.push(bytes_y[0]);
+            buf.extend_from_slice(&(entity.x as u16).to_be_bytes());
+            buf.extend_from_slice(&(entity.y as u16).to_be_bytes());
 
         }
 

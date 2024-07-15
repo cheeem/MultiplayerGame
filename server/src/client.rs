@@ -18,6 +18,7 @@ pub enum Message {
     LeftEnd(usize),
     RightStart(usize),
     RightEnd(usize),
+    Shoot(usize, f32, f32),
 }
 
 pub struct Client {
@@ -79,7 +80,6 @@ impl Client {
                     };
 
                     // footer
-                    buf.push(0); // placeholder, add flags / value if needed later
                     buf.push(client.idx_u8);
 
                     if let Err(err) = client.ws.send(tungstenite::Message::binary(buf)).await {
@@ -129,6 +129,11 @@ impl Client {
             5 => Some(Message::LeftEnd(idx)),
             6 => Some(Message::RightStart(idx)),
             7 => Some(Message::RightEnd(idx)),
+            8 => Some(Message::Shoot(
+                idx, 
+                u16::from_be_bytes(buf[1..3].try_into().ok()?) as f32, 
+                u16::from_be_bytes(buf[3..5].try_into().ok()?) as f32,
+            )),
             _ => None,
         }
 
