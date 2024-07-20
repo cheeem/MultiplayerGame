@@ -72,14 +72,14 @@ impl Game {
                         },
                         client::Message::UpStart(idx) => { game.users[idx].as_mut().map(|user| user.jump_buffer_ticks = user::User::JUMP_BUFFER_TICKS); },
                         client::Message::UpEnd(idx) => { game.users[idx].as_mut().map(|user| user.end_jump()); },
-                        client::Message::DownStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_down = true ); }
-                        client::Message::DownEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_down = false ); }
-                        client::Message::LeftStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = true ); },
+                        client::Message::DownStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_down = true); }
+                        client::Message::DownEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_down = false); }
+                        client::Message::LeftStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = true); },
                         client::Message::LeftEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = false); },
                         client::Message::RightStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = true); },
                         client::Message::RightEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = false); },
-                        client::Message::Shoot(idx, x, y) => { game.bullets.push(bullet::Bullet { user_idx: idx, ray: ray::Ray::from_click_position(&game.users[idx].as_ref().unwrap().dynamic_entity.entity, x, y) }); }
-                    }
+                        client::Message::Click(idx, x, y) => { game.bullets.push(bullet::Bullet::from_click_position(game.users[idx].as_ref().unwrap(), idx, x, y)); }
+                    };
 
                 },
 
@@ -91,7 +91,7 @@ impl Game {
                         continue;
                     }
 
-                    for bullet in &game.bullets {
+                    for bullet in &mut game.bullets {
                         bullet.tick(&mut game.users, game.platforms);
                     }
 
@@ -101,7 +101,7 @@ impl Game {
                             continue;
                         }
 
-                        let (plucked, iter) = game.users.iter_plucked(idx).unwrap();
+                        let (plucked, iter) = game.users.iter_plucked(idx).unwrap(); // none len = 0 (can't happen if in a loop)
                         let user = plucked.as_mut().unwrap();
                         let users_iter = iter.filter_map(|user| user.as_ref());
 
@@ -177,6 +177,19 @@ impl Game {
 
             buf.extend_from_slice(&(entity.x as u16).to_be_bytes());
             buf.extend_from_slice(&(entity.y as u16).to_be_bytes());
+
+        }
+
+        for bullet in &self.bullets {
+
+            buf.push(3);
+            buf.push(4);
+
+            buf.extend_from_slice(&(bullet.ray.origin_x as u16).to_be_bytes());
+            buf.extend_from_slice(&(bullet.ray.origin_y as u16).to_be_bytes());
+
+            buf.extend_from_slice(&(bullet.end_x as u16).to_be_bytes());
+            buf.extend_from_slice(&(bullet.end_y as u16).to_be_bytes());
 
         }
 

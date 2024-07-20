@@ -7,14 +7,14 @@ pub enum IntersectionType {
 
 pub struct Intersection {
     pub intersection_type: IntersectionType,
-    pub time: f32,
+    pub distance: f32,
 }
 
 pub struct Ray {
-    origin_x: f32,
-    origin_y: f32,
-    direction_x: f32,
-    direction_y: f32,
+    pub origin_x: f32,
+    pub origin_y: f32,
+    pub direction_x: f32,
+    pub direction_y: f32,
 }
 
 impl Ray {
@@ -24,13 +24,15 @@ impl Ray {
         let origin_x: f32 = entity.x + entity.width * 0.5;
         let origin_y: f32 = entity.y + entity.height * 0.5;
 
-        let distance_x: f32 = origin_x - x;
-        let distance_y: f32 = origin_y - y;
+        let distance_x: f32 = x - origin_x;
+        let distance_y: f32 = y - origin_y;
 
         let magnitude: f32 = f32::sqrt(distance_x * distance_x + distance_y * distance_y);
 
         let direction_x: f32 = distance_x / magnitude;
         let direction_y: f32 = distance_y / magnitude; 
+
+        println!("{} {} {} {} {} {} {}", x, y, origin_x, origin_y, distance_x, distance_y, magnitude);
 
         return Self {
             origin_x,
@@ -41,36 +43,40 @@ impl Ray {
 
     }
 
-    pub fn intersection(&self, entity: &entity::Entity, intersection_type: IntersectionType) -> Option<Intersection> {
+    pub fn intersection(&self, entity: &entity::Entity) -> Option<f32> {
 
-        let mut min_time: f32 = f32::NEG_INFINITY;
-        let mut max_time: f32 = f32::INFINITY;
+        let mut min_distance: f32 = f32::NEG_INFINITY;
+        let mut max_distance: f32 = f32::INFINITY;
 
         if self.direction_x != 0.0 {
 
-            let time_x_1: f32 = (entity.x - self.origin_x) / self.direction_x;
-            let time_x_2: f32 = (entity.x + entity.width - self.origin_x) / self.direction_x;
+            let distance_x_1: f32 = (entity.x - self.origin_x) / self.direction_x;
+            let distance_x_2: f32 = (entity.x + entity.width - self.origin_x) / self.direction_x;
 
-            min_time = min_time.max(time_x_1.min(time_x_2));
-            max_time = max_time.min(time_x_1.max(time_x_2));
+            min_distance = min_distance.max(distance_x_1.min(distance_x_2));
+            max_distance = max_distance.min(distance_x_1.max(distance_x_2));
 
         };
 
         if self.direction_y != 0.0 {
 
-            let time_y_1: f32 = (entity.y - self.origin_y) / self.direction_y;
-            let time_y_2: f32 = (entity.y + entity.height - self.origin_y) / self.direction_y;
+            let distance_y_1: f32 = (entity.y - self.origin_y) / self.direction_y;
+            let distance_y_2: f32 = (entity.y + entity.height - self.origin_y) / self.direction_y;
 
-            min_time = min_time.max(time_y_1.min(time_y_2));
-            max_time = max_time.min(time_y_1.max(time_y_2));
+            min_distance = min_distance.max(distance_y_1.min(distance_y_2));
+            max_distance = max_distance.min(distance_y_1.max(distance_y_2));
 
         };
 
-        if min_time > max_time {
+        if min_distance > max_distance {
             return None;
         }
 
-        return Some(Intersection { intersection_type, time: max_time });
+        if max_distance < 0.0 {
+            return None;
+        }
+
+        return Some(max_distance);
 
     }
 

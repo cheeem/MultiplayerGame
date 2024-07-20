@@ -18,7 +18,7 @@ pub enum Message {
     LeftEnd(usize),
     RightStart(usize),
     RightEnd(usize),
-    Shoot(usize, f32, f32),
+    Click(usize, f32, f32),
 }
 
 pub struct Client {
@@ -129,7 +129,7 @@ impl Client {
             5 => Some(Message::LeftEnd(idx)),
             6 => Some(Message::RightStart(idx)),
             7 => Some(Message::RightEnd(idx)),
-            8 => Some(Message::Shoot(
+            8 => Some(Message::Click(
                 idx, 
                 u16::from_be_bytes(buf[1..3].try_into().ok()?) as f32, 
                 u16::from_be_bytes(buf[3..5].try_into().ok()?) as f32,
