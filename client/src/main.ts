@@ -23,10 +23,10 @@ ws.onopen = () => {
 }
 
 // not working
-// ws.onclose = () => {
-//     console.log("restarting")
-//     ws = new WebSocket(url);
-// }
+ws.onclose = () => {
+    console.log("restarting");
+    ws = new WebSocket(url);
+}
 
 ws.onmessage = (e: MessageEvent) => {
 
@@ -127,6 +127,11 @@ function render() {
                 idx += 8;
                 break;
             }
+            case(3): {
+                bullet(ctx, view, idx);
+                idx += 10;
+                break;
+            }
             default:
                 alert("Invalid Object Type")
         }
@@ -166,6 +171,28 @@ function platform(ctx: CanvasRenderingContext2D, view: DataView, idx: number) {
 
     ctx.fillStyle = COLORS[sprite_idx];
     ctx.fillRect(x, y, width, height);
+
+}
+
+function bullet(ctx: CanvasRenderingContext2D, view: DataView, idx: number) {
+
+    const sprite_idx: number = view.getUint8(idx + 1);
+
+    const origin_x: number = view.getUint16(idx + 2);
+    const origin_y: number = view.getUint16(idx + 4);
+    const end_x: number = view.getUint16(idx + 6);
+    const end_y: number = view.getUint16(idx + 8);
+
+    console.log(end_x, end_y);
+
+    ctx.strokeStyle = COLORS[sprite_idx];
+
+    ctx.beginPath();
+
+    ctx.moveTo(origin_x, origin_y);
+    ctx.lineTo(end_x, end_y);
+
+    ctx.stroke();
 
 }
 
