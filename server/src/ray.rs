@@ -1,12 +1,12 @@
 use crate::entity;
 
-pub enum IntersectionType {
+pub enum IntersectionVariant {
     User(usize),
     Platform,
 }
 
 pub struct Intersection {
-    pub intersection_type: IntersectionType,
+    pub variant: IntersectionVariant,
     pub distance: f32,
 }
 

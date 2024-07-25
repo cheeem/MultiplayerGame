@@ -5,8 +5,8 @@ mod bullet;
 mod client;
 mod entity;
 mod game;
-mod platform;
 mod ray;
+mod room;
 mod slice;
 mod user;
 

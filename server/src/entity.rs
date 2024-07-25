@@ -1,29 +1,34 @@
-use crate::game;
+use crate::room;
 
-pub enum CollisionType {
-    User, 
-    Platform,
-}
-
-#[derive(Debug)]
-pub enum CollisionEntity<'a> {
+pub enum CollisionVariant<'a> {
     Bounds,
     User(&'a Entity),
     Platform(&'a Entity),
+    Door(&'a room::Door),
 }
 
 #[derive(Debug)]
-pub enum HorizontalCollision<'a> {
-    None,
-    Left(CollisionEntity<'a>),
-    Right(CollisionEntity<'a>),
+pub enum HorizontalCollisionDirection {
+    Left,
+    Right,
 }
 
 #[derive(Debug)]
-pub enum VerticalCollision<'a> {
-    None,
-    Up(CollisionEntity<'a>),
-    Down(CollisionEntity<'a>),
+pub enum VerticalCollisionDirection {
+    Up,
+    Down,
+}
+
+pub struct HorizontalCollision<'a> {
+    pub variant: CollisionVariant<'a>, 
+    pub direction: HorizontalCollisionDirection, 
+    pub time: f32,
+}
+
+pub struct VerticalCollision<'a> {
+    pub variant: CollisionVariant<'a>,
+    pub direction: VerticalCollisionDirection, 
+    pub time: f32,
 }
 
 #[derive(Debug)]
@@ -42,57 +47,24 @@ pub struct DynamicEntity {
     pub weight: f32,
 }
 
-impl CollisionType {
-    fn to_collision_entity<'a, 'b>(&'a self, entity: &'b Entity) -> CollisionEntity<'b> {
-        match self {
-            Self::User => CollisionEntity::User(entity), 
-            Self::Platform => CollisionEntity::Platform(entity), 
-        }
-    }
-}
-
-impl<'a> CollisionEntity<'a> {
-    pub fn entity(&self) -> Option<&Entity> {
-        match self {
-            Self::Bounds => None,
-            Self::User(entity) => Some(entity),
-            Self::Platform(entity) => Some(entity),
-        }
-    }
-}
-
-impl<'a> HorizontalCollision<'a> {
-    pub fn is_some(&self) -> bool {
-        match self{
-            Self::None => false,
-            _ => true,
-        }
-    }
-}
-
-impl<'a> VerticalCollision<'a> {
-    pub fn is_some(&self) -> bool {
-        match self{
-            Self::None => false,
-            _ => true,
-        }
-    }
-}
-
 impl DynamicEntity {
 
-    pub fn horizontal_bounds_collision(&self) -> HorizontalCollision<'static> {
-
-        let mut collision: HorizontalCollision = HorizontalCollision::None;
+    pub fn horizontal_bounds_collision(&self, bounds: &'static room::Bounds) -> Option<HorizontalCollision<'static>> {
 
         match self.dx.partial_cmp(&0.0) {
             Some(std::cmp::Ordering::Greater) => {
 
-                let bounds_collision: bool = game::BOUNDS_X_MAX - self.entity.width - self.dx < self.entity.x;
+                let bounds_collision: bool = bounds.x_max - self.entity.width - self.dx < self.entity.x;
 
                 if bounds_collision {
-                    collision = HorizontalCollision::Right(CollisionEntity::Bounds);
+                    return Some(HorizontalCollision { 
+                        variant: CollisionVariant::Bounds,
+                        direction: HorizontalCollisionDirection::Right,
+                        time: f32::INFINITY,
+                    })
                 }
+
+                None
 
             }
             Some(std::cmp::Ordering::Less) => {
@@ -100,29 +72,37 @@ impl DynamicEntity {
                 let bounds_collision: bool = self.entity.x <= self.dx * -1.0;
 
                 if bounds_collision {
-                    collision = HorizontalCollision::Left(CollisionEntity::Bounds);
-                }
+                    return Some(HorizontalCollision {
+                        variant: CollisionVariant::Bounds,
+                        direction: HorizontalCollisionDirection::Left,
+                        time: f32::INFINITY,
+                    })
+                } 
+
+                None
 
             }
-            _ => (),
+            _ => None,
         }
-
-        return collision;
 
     }
 
-    pub fn vertical_bounds_collision(&self) -> VerticalCollision<'static> {
-
-        let mut collision: VerticalCollision = VerticalCollision::None;
+    pub fn vertical_bounds_collision(&self, bounds: &'static room::Bounds) -> Option<VerticalCollision<'static>> {
 
         match self.dy.partial_cmp(&0.0) {
             Some(std::cmp::Ordering::Greater) => {
 
-                let bounds_collision: bool = game::BOUNDS_Y_MAX - self.entity.height - self.dy < self.entity.y;
+                let bounds_collision: bool = bounds.y_max - self.entity.height - self.dy < self.entity.y;
 
                 if bounds_collision {
-                    collision = VerticalCollision::Down(CollisionEntity::Bounds);
+                    return Some(VerticalCollision {
+                        variant: CollisionVariant::Bounds,
+                        direction: VerticalCollisionDirection::Down,
+                        time: f32::INFINITY,
+                    })
                 }
+
+                None
 
             }
             Some(std::cmp::Ordering::Less) => {
@@ -130,14 +110,18 @@ impl DynamicEntity {
                 let bounds_collision: bool = self.entity.y <= self.dy * -1.0;
 
                 if bounds_collision {
-                    collision = VerticalCollision::Up(CollisionEntity::Bounds);
-                }
+                    return Some(VerticalCollision {
+                        variant: CollisionVariant::Bounds,
+                        direction: VerticalCollisionDirection::Up,
+                        time: f32::INFINITY,
+                    })
+                } 
+
+                None
 
             }
-            _ => (),
+            _ => None,
         }
-
-        return collision;
 
     }
 
@@ -221,10 +205,8 @@ impl DynamicEntity {
 
     // }
 
-    pub fn swept_collision<'a, 'b>(&'a self, other: &'b Entity, collision_type: CollisionType) -> (f32, HorizontalCollision<'b>, VerticalCollision<'b>) {
+    pub fn swept_collision<'a, 'b>(&'a self, other: &'b Entity) -> (f32, Option<HorizontalCollisionDirection>, Option<VerticalCollisionDirection>) {
 
-        let horizontal_collision: HorizontalCollision = HorizontalCollision::None;
-        let vertical_collision: VerticalCollision = VerticalCollision::None;
         let entry_time: f32 = 1.0;
 
         let (x_entry_time, x_exit_time) = if self.dx == 0.0 {
@@ -237,8 +219,8 @@ impl DynamicEntity {
             } else {
                 return (
                     entry_time, 
-                    horizontal_collision,
-                    vertical_collision,
+                    None,
+                    None,
                 )
             }
 
@@ -273,8 +255,8 @@ impl DynamicEntity {
             } else {
                 return (
                     entry_time,
-                    horizontal_collision,
-                    vertical_collision,
+                    None,
+                    None,
                 )
             }
 
@@ -302,8 +284,8 @@ impl DynamicEntity {
         if x_entry_time > y_exit_time || y_entry_time > x_exit_time {
             return (
                 entry_time,
-                horizontal_collision,
-                vertical_collision,
+                None,
+                None,
             )
         }
 
@@ -316,30 +298,40 @@ impl DynamicEntity {
         if entry_time < 0.0 || entry_time > 1.0 {
             return (
                 entry_time,
-                horizontal_collision,
-                vertical_collision,
+                None,
+                None,
             )
         }
 
-        let (horizontal_collision, vertical_collision) = if x_entry_time > y_entry_time {
+        if x_entry_time > y_entry_time {
             if self.dx > 0.0 {
-                (HorizontalCollision::Right(collision_type.to_collision_entity(other)), VerticalCollision::None)
+                (
+                    entry_time, 
+                    Some(HorizontalCollisionDirection::Right), 
+                    None
+                )
             } else {
-                (HorizontalCollision::Left(collision_type.to_collision_entity(other)), VerticalCollision::None)
+                (
+                    entry_time, 
+                    Some(HorizontalCollisionDirection::Left), 
+                    None
+                )
             }
         } else {
             if self.dy > 0.0 {
-                (HorizontalCollision::None, VerticalCollision::Down(collision_type.to_collision_entity(other)))
+                (
+                    entry_time, 
+                    None, 
+                    Some(VerticalCollisionDirection::Down)
+                )
             } else {
-                (HorizontalCollision::None, VerticalCollision::Up(collision_type.to_collision_entity(other)))
+                (
+                    entry_time, 
+                    None, 
+                    Some(VerticalCollisionDirection::Up)
+                )
             }
-        };
-
-        return (
-            entry_time,
-            horizontal_collision,
-            vertical_collision,
-        )
+        }
 
     }
 

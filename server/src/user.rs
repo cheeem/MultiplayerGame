@@ -1,5 +1,5 @@
 use tokio::sync::mpsc;
-use crate::{ entity, game, platform };
+use crate::{ entity, room, };
 
 // #[derive(Debug)]
 // enum UserState {
@@ -13,6 +13,7 @@ use crate::{ entity, game, platform };
 pub struct User {
     // index 
     pub idx: u8,
+    pub room_idx: usize,
     // channels
     pub send_to_client: mpsc::Sender<Vec<u8>>,
     // dynamic entity
@@ -37,7 +38,7 @@ impl User {
     const RUN_END_FORCE: f32 = 4.0;
     const RUN_MAX_SPEED: f32 = 5.0;
 
-    pub fn new(idx: u8, send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
+    pub fn new(idx: u8, room_idx: usize, send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
 
         let entity: entity::Entity = entity::Entity {
             x: 0.0,
@@ -49,13 +50,14 @@ impl User {
         let dynamic_entity: entity::DynamicEntity = entity::DynamicEntity {
             entity,
             dx: 0.0,
-            dy: game::GRAVITY,
+            dy: 0.0,
             weight: 3.0,
         };
 
         Self {
             // index 
             idx,
+            room_idx,
             // channels
             send_to_client,
             // entity
@@ -70,74 +72,119 @@ impl User {
 
     }
 
-    pub fn tick<'a, 'b>(&'a mut self, users: impl Iterator<Item = &'b User>, platforms: &'b [platform::Platform]) {
+    // pub fn respawn(&mut self, room_idx: usize) {
+    //     self.room_idx = room_idx;
+    //     self.dynamic_entity.dx = 0.0;
+    //     self.dynamic_entity.dy = 0.0;
+    //     self.dynamic_entity.entity.x = 0.0;
+    //     self.dynamic_entity.entity.y = 0.0;
+    //     self.jump_buffer_ticks = 0;
+    //     self.coyote_ticks = 0;
+    //     self.holding_left = false;
+    //     self.holding_right = false;
+    //     self.holding_down = false;
+    // }
 
-        let mut horizontal_collision: entity::HorizontalCollision = entity::HorizontalCollision::None;
-        let mut vertical_collision: entity::VerticalCollision = entity::VerticalCollision::None;
+    pub fn tick<'a, 'b>(&'a mut self, users: impl Iterator<Item = &'b User>) {
 
-        let mut horizontal_time: f32 = f32::INFINITY;
+        let room: &room::Room = &room::ROOMS[self.room_idx];
+
+        let mut horizontal_collision: Option<entity::HorizontalCollision> = None;
+        let mut vertical_collision: Option<entity::VerticalCollision> = None;
+
+        let mut horizontal_time: f32 = f32::INFINITY; // could rely on 
         let mut vertical_time: f32 = f32::INFINITY;
-        
-        // for platform in platforms {
-        //     match (&horizontal_collision, &vertical_collision) {
-        //         (entity::HorizontalCollision::None, entity::VerticalCollision::None) => {
-        //             horizontal_collision = self.entity.horizonal_static_collision(&platform.entity);
-        //             vertical_collision = self.entity.vertical_static_collision(&platform.entity);
-        //         }
-        //         (entity::HorizontalCollision::None, _) => {
-        //             horizontal_collision = self.entity.horizonal_static_collision(&platform.entity);
-        //         }
-        //         (_, entity::VerticalCollision::None) => {
-        //             vertical_collision = self.entity.vertical_static_collision(&platform.entity);
-        //         }
-        //         _ => break
-        //     }
-        // }
 
         for user in users {
+
+            if user.room_idx != self.room_idx {
+                continue;
+            }
+
+            let entity: &entity::Entity = &user.dynamic_entity.entity;
             
-            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&user.dynamic_entity.entity, entity::CollisionType::User);
+            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(entity);
             
-            if horizontal.is_some() {
+            if let Some(direction) = horizontal {
                 if time < horizontal_time {
                     horizontal_time = time;
-                    horizontal_collision = horizontal;
+                    horizontal_collision = Some(entity::HorizontalCollision {
+                        variant: entity::CollisionVariant::User(entity),
+                        direction,
+                        time,
+                    });
                 }
-            } else if vertical.is_some() {
+            } else if let Some(direction) = vertical {
                 if time < vertical_time {
                     vertical_time = time;
-                    vertical_collision = vertical;
+                    vertical_collision = Some(entity::VerticalCollision {
+                        variant: entity::CollisionVariant::User(entity),
+                        direction,
+                        time,
+                    });
                 }                
             }
 
         }
 
-        for platform in platforms {
+        for entity in room.platforms {
             
-            let (time, _, vertical) = self.dynamic_entity.swept_collision(&platform.entity, entity::CollisionType::Platform);
+            let (time, _, vertical) = self.dynamic_entity.swept_collision(entity);
             
-            if self.dynamic_entity.dy > 0.0 && vertical.is_some() {
-                if self.holding_down {
-                    self.holding_down = false;
-                } else if time < vertical_time {
+            if self.dynamic_entity.dy > 0.0 {
+                if let Some(direction) = vertical {
+                    if self.holding_down {
+                        self.holding_down = false;
+                    } else if time < vertical_time {
+                        vertical_time = time;
+                        vertical_collision = Some(entity::VerticalCollision {
+                            variant: entity::CollisionVariant::Platform(entity),
+                            direction,
+                            time,
+                        });
+                    }
+                }
+            }
+
+        }
+
+        for door in room.doors {
+            
+            let (time, horizontal, vertical) = self.dynamic_entity.swept_collision(&door.entity);
+            
+            if let Some(direction) = horizontal {
+                if time < horizontal_time {
+                    horizontal_time = time;
+                    horizontal_collision = Some(entity::HorizontalCollision {
+                        variant: entity::CollisionVariant::Door(door),
+                        direction,
+                        time,
+                    });
+                }
+            } else if let Some(direction) = vertical {
+                if time < vertical_time {
                     vertical_time = time;
-                    vertical_collision = vertical;
+                    vertical_collision = Some(entity::VerticalCollision {
+                        variant: entity::CollisionVariant::Door(door),
+                        direction,
+                        time,
+                    });
                 }                
             }
 
         }
 
-        if let entity::HorizontalCollision::None = horizontal_collision {
-            horizontal_collision = self.dynamic_entity.horizontal_bounds_collision();
+        if horizontal_collision.is_none() {
+            horizontal_collision = self.dynamic_entity.horizontal_bounds_collision(&room.bounds);
         }
 
-        if let entity::VerticalCollision::None = vertical_collision {
-            vertical_collision = self.dynamic_entity.vertical_bounds_collision();
+        if vertical_collision.is_none() {
+            vertical_collision = self.dynamic_entity.vertical_bounds_collision(&room.bounds);
         }
 
         match horizontal_collision {
-            entity::HorizontalCollision::None => {
-
+            None => {
+                
                 self.dynamic_entity.entity.x += self.dynamic_entity.dx;
                 
                 match self.dynamic_entity.dx.partial_cmp(&0.0) {
@@ -159,34 +206,62 @@ impl User {
                 }
 
             }
-            entity::HorizontalCollision::Left(collision_entity) => {
+            Some(entity::HorizontalCollision { variant, direction, time }) => {
+                match direction {
+                    entity::HorizontalCollisionDirection::Left => {
 
-                self.dynamic_entity.entity.x = if let entity::CollisionEntity::Bounds = collision_entity {
-                    game::BOUNDS_X_MIN
-                } else {
-                    let entity: &entity::Entity = collision_entity.entity().unwrap();
-                    entity.x + entity.width
-                };
-            
-                self.dynamic_entity.dx = 0.0;
+                        match variant {
+                            entity::CollisionVariant::Bounds => {
+                                self.dynamic_entity.entity.x = 0.0;
+                            }
+                            entity::CollisionVariant::User(entity) => {
+                                self.dynamic_entity.entity.x = entity.x + entity.width;
+                            }
+                            entity::CollisionVariant::Platform(_) => {
+                                unreachable!();
+                            }
+                            entity::CollisionVariant::Door(door) => {
+                                let room_idx: usize = door.room_idx;
+                                let entity: &entity::Entity = &room::ROOMS[room_idx].doors[door.door_idx].entity;
 
-            },
-            entity::HorizontalCollision::Right(collision_entity) => {
+                                self.room_idx = room_idx;
+                                self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
+                            }
+                        }
 
-                self.dynamic_entity.entity.x = if let entity::CollisionEntity::Bounds = collision_entity {
-                    game::BOUNDS_X_MAX - self.dynamic_entity.entity.width
-                } else {
-                    let entity: &entity::Entity = collision_entity.entity().unwrap();
-                    entity.x - self.dynamic_entity.entity.width
-                };
+                        self.dynamic_entity.dx = 0.0;
 
-                self.dynamic_entity.dx = 0.0;
+                    }
+                    entity::HorizontalCollisionDirection::Right => {
 
-            },
+                        match variant {
+                            entity::CollisionVariant::Bounds => {
+                                self.dynamic_entity.entity.x = room.bounds.x_max - self.dynamic_entity.entity.width;
+                            }
+                            entity::CollisionVariant::User(entity) => {
+                                self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
+                            }
+                            entity::CollisionVariant::Platform(_) => {
+                                unreachable!();
+                            }
+                            entity::CollisionVariant::Door(door) => {
+                                let room_idx: usize = door.room_idx;
+                                let entity: &entity::Entity = &room::ROOMS[room_idx].doors[door.door_idx].entity;
+
+                                self.room_idx = room_idx;
+                                self.dynamic_entity.entity.x = entity.x + entity.width;
+                            }
+                        }
+
+                        self.dynamic_entity.dx = 0.0;
+
+                    }
+                }
+            }
         }
 
         match vertical_collision {
-            entity::VerticalCollision::None => {
+            None => {
 
                 self.dynamic_entity.entity.y += self.dynamic_entity.dy;
 
@@ -195,39 +270,60 @@ impl User {
                 }
 
             }
-            entity::VerticalCollision::Down(collision_entity) => {
+            Some(entity::VerticalCollision { variant, direction, time, }) => {
+                match direction {
+                    entity::VerticalCollisionDirection::Down => {
 
-                self.dynamic_entity.entity.y = if let entity::CollisionEntity::Bounds = collision_entity {
-                    game::BOUNDS_Y_MAX - self.dynamic_entity.entity.height
-                } else {
-                    let entity: &entity::Entity = collision_entity.entity().unwrap();
-                    entity.y - self.dynamic_entity.entity.height
-                };
+                        match variant {
+                            entity::CollisionVariant::Bounds => {
+                                self.dynamic_entity.entity.y = room.bounds.y_max - self.dynamic_entity.entity.height;
+                            }
+                            entity::CollisionVariant::User(entity) => {
+                                self.dynamic_entity.entity.y = entity.y - self.dynamic_entity.entity.height;
+                            }
+                            entity::CollisionVariant::Platform(entity) => {
+                                self.dynamic_entity.entity.y = entity.y - self.dynamic_entity.entity.height;
+                            }
+                            entity::CollisionVariant::Door(door) => {
+                                self.dynamic_entity.entity.y = door.entity.y - self.dynamic_entity.entity.height;
+                            }
+                        }
+        
+                        self.dynamic_entity.dy = 0.0;
+        
+                        if self.jump_buffer_ticks > 0 {
+                            self.jump();
+                        } else {
+                            self.coyote_ticks = Self::COYOTE_TICKS;
+                        }
 
-                self.dynamic_entity.dy = 0.0;
+                    }
+                    entity::VerticalCollisionDirection::Up => {
 
-                if self.jump_buffer_ticks > 0 {
-                    self.jump();
-                } else {
-                    self.coyote_ticks = Self::COYOTE_TICKS;
+                        match variant {
+                            entity::CollisionVariant::Bounds => {
+                                self.dynamic_entity.entity.y = 0.0;
+                            }
+                            entity::CollisionVariant::User(entity) => {
+                                self.dynamic_entity.entity.y = entity.y + entity.height;
+                            }
+                            entity::CollisionVariant::Platform(_) => {
+                                unreachable!();
+                            }
+                            entity::CollisionVariant::Door(door) => {
+                                self.dynamic_entity.entity.y = door.entity.y + door.entity.height;
+                            }
+                        }
+
+                        self.dynamic_entity.dy = 0.0;
+
+                    }
                 }
 
-            },
-            entity::VerticalCollision::Up(collision_entity) => {
-
-                self.dynamic_entity.entity.y = if let entity::CollisionEntity::Bounds = collision_entity {
-                    game::BOUNDS_Y_MIN
-                } else {
-                    let entity: &entity::Entity = collision_entity.entity().unwrap();
-                    entity.y + entity.height
-                };
-
-                self.dynamic_entity.dy = 0.0;
-
-            },
+            }
         }
 
-        self.fall();
+        self.fall(room.gravity);
 
         // maybe check if grounded and do something different if in air
         // or move inside horizontal collision :: none
@@ -251,8 +347,8 @@ impl User {
 
     }
 
-    fn fall(&mut self) {
-        self.dynamic_entity.dy += game::GRAVITY;
+    fn fall(&mut self, gravity: f32) {
+        self.dynamic_entity.dy += gravity;
     }
 
     fn jump(&mut self) {
