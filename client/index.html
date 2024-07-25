@@ -7,13 +7,44 @@
         <title>WS</title>
     </head>
     <body>
-        <canvas></canvas>
+        <main>
+            <div id="fps">
+                <p id="server-fps"></p>
+                <p id="client-fps"></p>
+            </div>
+            <canvas></canvas>
+        </main>
         <script type="module" src="/src/main.ts"></script>
     </body>
     <style>
 
-        body {
+        * {
             margin: 0;
+        }
+
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            display: grid;
+            place-items: center;
+        }
+
+        main {
+            position: relative;
+        }
+
+        #fps {
+            position: absolute;
+            top: 0.25em;
+            left: 0.25em;
+        }
+
+        #fps > * {
+            display: inline;
+            
+            font-family: monospace;
         }
 
         canvas {

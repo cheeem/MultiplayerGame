@@ -1,16 +1,28 @@
 const url: string = "ws://localhost:3000";
+const server_fps: Element = document.getElementById("server-fps")!;
+const client_fps: Element = document.getElementById("client-fps")!;
 const canvas: HTMLCanvasElement = document.querySelector("canvas")!;
 const ctx: CanvasRenderingContext2D = canvas.getContext("2d")!;
 
-const COLORS = ["red", "blue", "green", "yellow", "purple"] as const;
+const COLORS = ["red", "blue", "green", "yellow", "purple", "black"] as const;
+
+const canvas_size: number = 255;
+const footer_size: number = 1;
 
 let ws: WebSocket = new WebSocket(url);
 let view: DataView;
+
 let self_idx: number;
 
-const canvas_size: number = 255;
-// const factor: number = 2;
-const footer_size: number = 1;
+let server_frames: number = 0;
+let client_frames: number = 0;
+
+setInterval(() => {
+    server_fps.textContent = server_frames.toString();
+    client_fps.textContent = client_frames.toString();
+    server_frames = 0;
+    client_frames = 0;
+}, 1000);
 
 canvas.width = canvas_size;
 canvas.height = canvas_size;
@@ -22,12 +34,6 @@ ws.onopen = () => {
     render();
 }
 
-// not working
-ws.onclose = () => {
-    console.log("restarting");
-    ws = new WebSocket(url);
-}
-
 ws.onmessage = (e: MessageEvent) => {
 
     const buf: ArrayBuffer = e.data;
@@ -36,6 +42,8 @@ ws.onmessage = (e: MessageEvent) => {
 
     // footer 
     self_idx = view.getInt8(view.byteLength-1);
+
+    server_frames++;
 
 }
 
@@ -110,6 +118,8 @@ function render() {
         return requestAnimationFrame(render)
     }
 
+    client_frames++;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     let idx: number = 0;
@@ -128,6 +138,11 @@ function render() {
                 break;
             }
             case(3): {
+                door(ctx, view, idx)
+                idx += 8;
+                break;
+            }
+            case(4): {
                 bullet(ctx, view, idx);
                 idx += 10;
                 break;
@@ -153,7 +168,7 @@ function user(ctx: CanvasRenderingContext2D, view: DataView, idx: number) {
     const y: number = view.getUint16(idx + 8);
 
     if(user_idx == self_idx) {
-        sprite_idx = 2;
+        sprite_idx = 1;
     }
 
     ctx.fillStyle = COLORS[sprite_idx];
@@ -163,6 +178,19 @@ function user(ctx: CanvasRenderingContext2D, view: DataView, idx: number) {
 
 function platform(ctx: CanvasRenderingContext2D, view: DataView, idx: number) {
     
+    const sprite_idx: number = view.getUint8(idx + 1);
+    const width: number = view.getUint8(idx + 2);
+    const height: number = view.getUint8(idx + 3);
+    const x: number = view.getUint16(idx + 4);
+    const y: number = view.getUint16(idx + 6);
+
+    ctx.fillStyle = COLORS[sprite_idx];
+    ctx.fillRect(x, y, width, height);
+
+}
+
+function door(ctx: CanvasRenderingContext2D, view: DataView, idx: number) {
+
     const sprite_idx: number = view.getUint8(idx + 1);
     const width: number = view.getUint8(idx + 2);
     const height: number = view.getUint8(idx + 3);
