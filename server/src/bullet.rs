@@ -1,16 +1,40 @@
-use crate::{ entity, platform, ray, user };
+use crate::{ ray, room, user };
 
 pub struct Bullet {
     pub user_idx: usize, 
-    pub ray: ray::Ray, 
+    pub room_idx: usize,
+    pub ray: ray::Ray,
+}
+
+pub struct BulletPath {
+    pub origin_x: f32,
+    pub origin_y: f32, 
+    pub end_x: f32, 
+    pub end_y: f32, 
 }
 
 impl Bullet {
 
-    pub fn tick(&self, users: &mut [Option<user::User>], platforms: &[platform::Platform]) {
+    pub fn from_click_position(user: &user::User, idx: usize, x: f32, y: f32) -> Self {
 
-        let mut closest_intersection: Option<ray::Intersection> = None;
-        let mut min_time: f32 = f32::NEG_INFINITY;
+        let ray: ray::Ray = ray::Ray::from_click_position(&user.dynamic_entity.entity, x, y);
+
+        println!("{x} {y} {} {}", ray.direction_x, ray.direction_y);
+        
+        Self { 
+            user_idx: idx, 
+            room_idx: user.room_idx,
+            ray,
+        }
+        
+    }
+
+    pub fn tick(&self, users: &mut [Option<user::User>]) -> BulletPath {
+
+        let room: &room::Room = &room::ROOMS[self.room_idx];
+
+        let mut intersection: Option<ray::Intersection> = None;
+        let mut min_distance: f32 = f32::INFINITY;
 
         for idx in 0..users.len() {
 
@@ -18,45 +42,81 @@ impl Bullet {
                 continue;
             }
 
-            let user: Option<&user::User> = users[idx].as_ref();
-            
-            if user.is_none() {
+            let user: &user::User = match users[idx].as_ref() {
+                Some(user) => user,
+                None => continue,
+            };
+
+            if user.room_idx != self.room_idx {
                 continue;
             }
 
-            let entity: &entity::Entity = &user.unwrap().dynamic_entity.entity;
+            let intersection_distance: Option<f32> = self.ray.intersection(&user.dynamic_entity.entity);
 
-            let intersection: Option<ray::Intersection> = self.ray.intersection(entity, ray::IntersectionType::User(idx));
-
-            if let Some(ray::Intersection { time, .. }) = intersection {
-                if time > min_time {
-                    closest_intersection = intersection;
-                    min_time = time;
+            if let Some(distance) = intersection_distance {
+                if distance < min_distance {
+                    intersection = Some(ray::Intersection { distance, variant: ray::IntersectionVariant::User(idx) });
+                    min_distance = distance;
                 }
             }
 
         }
 
-        for entity in platforms.iter().map(|platform| &platform.entity) {
+        for entity in room.platforms {
 
-            let intersection: Option<ray::Intersection> = self.ray.intersection(entity, ray::IntersectionType::Platform);
+            let intersection_distance: Option<f32> = self.ray.intersection(entity);
 
-            if let Some(ray::Intersection { time, .. }) = intersection {
-                if time > min_time {
-                    closest_intersection = intersection;
-                    min_time = time;
+            if let Some(distance) = intersection_distance {
+                if distance < min_distance {
+                    intersection = Some(ray::Intersection { distance, variant: ray::IntersectionVariant::Platform });
+                    min_distance = distance;
                 }
             }
 
         }
 
-        if let Some(ray::Intersection { intersection_type, .. }) = closest_intersection {
-            if let ray::IntersectionType::User(idx) = intersection_type {
-                // kill user
-                users[idx] = None;
+        println!("{:?}\n", intersection.as_ref().map(|i| i.distance));
+
+        let distance: f32 = match intersection {
+            //None => f32::max(room.bounds.x_max, room.bounds.y_max) * std::f32::consts::SQRT_2,
+            None => 200.0,
+            Some(ray::Intersection { variant, distance }) => {
+
+                if let ray::IntersectionVariant::User(idx) = variant {
+
+                    let user: user::User = users[idx].take().unwrap();
+                    // respawn shot user
+                    users[idx] = Some(user::User::new(user.idx, user.room_idx, user.send_to_client));
+
+                }
+
+                distance
+
             }
-        }
+        };
+
+        BulletPath::from_bullet(self, distance)
 
     }
 
+}
+
+impl BulletPath {
+
+    fn from_bullet(bullet: &Bullet, magnitude: f32) -> Self {
+
+        let origin_x: f32 = bullet.ray.origin_x;
+        let origin_y: f32 = bullet.ray.origin_y;
+
+        let end_x: f32 = origin_x + magnitude * bullet.ray.direction_x;
+        let end_y: f32 = origin_y + magnitude * bullet.ray.direction_y;
+
+        Self {
+            origin_x,
+            origin_y,
+            end_x,
+            end_y,
+        }
+
+    }
 }
