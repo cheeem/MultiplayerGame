@@ -1,5 +1,5 @@
 use tokio::sync::mpsc;
-use crate::{ bullet, client, entity, room, slice, user };
+use crate::{ bullet, client, entity, ray::Ray, room::{self, ROOM_COUNT}, slice, user };
 use slice::IterPlucked;
 
 pub struct Game {
@@ -9,7 +9,8 @@ pub struct Game {
     rooms_to_render: Vec<usize>, 
 }
 
-pub const TICK_DT: u64 = 20;
+pub const TICK_DT: u64 = 16;
+pub const MAX_PLAYERS: usize = u8::MAX as usize;
 
 impl Game {
 
@@ -17,9 +18,9 @@ impl Game {
 
         let mut game: Self = Self {
             receive_from_client,
-            users: Vec::with_capacity(u8::MAX as usize), // could change to smaller #
+            users: Vec::with_capacity(MAX_PLAYERS),
             rooms_mut: room::rooms_mut(),
-            rooms_to_render: Vec::with_capacity(u8::MAX as usize), // could change to smaller #
+            rooms_to_render: Vec::with_capacity(ROOM_COUNT), 
         };
 
         let mut timer: tokio::time::Interval = tokio::time::interval(tokio::time::Duration::from_millis(TICK_DT));
@@ -30,99 +31,111 @@ impl Game {
                 client_msg = game.receive_from_client.recv() => {
 
                     let client_msg: client::Message = match client_msg {
-                        Some(client_msg) => client_msg,
+                        Some(msg) => msg,
                         None => return println!("no client message found"),
                     };
 
-                    match client_msg {
-                        client::Message::Connect { send_idx_to_client, send_to_client } => {
-
-                            match game.users.iter().position(|user| user.is_none()) {
-                                Some(idx) => {
-                                    if send_idx_to_client.send(idx).is_ok() {
-                                        game.users[idx] = Some(user::User::new(idx as u8, 0, send_to_client));
-                                    }
-                                }
-                                None => {
-                                    let idx: usize = game.users.len();
-                                    if send_idx_to_client.send(idx).is_ok() {
-                                        game.users.push(Some(user::User::new(idx as u8, 0, send_to_client)));
-                                    }
-                                }
-                            }
-
-                        },
-                        client::Message::UpStart(idx) => { game.users[idx].as_mut().map(|user| user.jump_buffer_ticks = user::User::JUMP_BUFFER_TICKS); },
-                        client::Message::UpEnd(idx) => { game.users[idx].as_mut().map(|user| user.end_jump()); },
-                        client::Message::DownStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_down = true); }
-                        client::Message::DownEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_down = false); }
-                        client::Message::LeftStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = true); },
-                        client::Message::LeftEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_left = false); },
-                        client::Message::RightStart(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = true); },
-                        client::Message::RightEnd(idx) => { game.users[idx].as_mut().map(|user| user.holding_right = false); },
-                        client::Message::Click(idx, x, y) => { 
-                            
-                            let user: &user::User = match game.users[idx].as_ref() {
-                                Some(user) => user,
-                                None => continue,
-                            };
-
-                            game.rooms_mut[user.room_idx].bullets.push(bullet::Bullet::from_click_position(user, idx, x, y)); 
-
-                        }
-                    };
+                    game.handle_client_msg(client_msg);
 
                 },
 
-                _ = timer.tick() => {
-
-                    let len: usize = game.users.len();
-
-                    if len == 0 { 
-                        continue;
-                    }
-
-                    for room_mut in &mut game.rooms_mut {
-                                                
-                        for bullet in &room_mut.bullets {
-                            room_mut.bullet_paths.push(bullet.tick(&mut game.users));
-                        }
-                        
-                        room_mut.bullets.clear();
-                        
-                    }
-
-                    for idx in 0..game.users.len() {
-
-                        if game.users[idx].is_none() {
-                            continue;
-                        }
-
-                        let (plucked, iter) = game.users.iter_plucked(idx).unwrap(); // none len = 0 (can't happen if in a loop)
-                        let user = plucked.as_mut().unwrap();
-                        let users_iter = iter.filter_map(|u| u.as_ref());
-
-                        game.rooms_to_render.push(user.room_idx);
-
-                        user.tick(users_iter);
-
-                    }
-
-                    for idx in 0..game.rooms_to_render.len() {
-                        let room_idx = game.rooms_to_render[idx];
-                        let buf: Vec<u8> = game.render_room(room_idx);
-                        game.send_render_buffer(room_idx, buf);
-                    }
-
-                    game.rooms_to_render.clear();
-
-                    for room_mut in &mut game.rooms_mut {
-                        room_mut.bullet_paths.clear();
-                    }
-
-                },
+                _ = timer.tick() => game.tick(),
 
             }
+        }
+
+    }
+
+    fn handle_client_msg(&mut self, client_msg: client::Message) {
+
+        match client_msg {
+            client::Message::Connect { send_idx_to_client, send_to_client } => {
+
+                match self.users.iter().position(|user| user.is_none()) {
+                    Some(idx) => {
+                        if send_idx_to_client.send(idx).is_ok() {
+                            self.users[idx] = Some(user::User::new(idx as u8, 0, send_to_client));
+                        }
+                    }
+                    None => {
+                        let idx: usize = self.users.len();
+                        if send_idx_to_client.send(idx).is_ok() {
+                            self.users.push(Some(user::User::new(idx as u8, 0, send_to_client)));
+                        }
+                    }
+                }
+
+            },
+            client::Message::UpStart(idx) => { self.users[idx].as_mut().map(|user| user.jump_buffer_ticks = user::User::JUMP_BUFFER_TICKS); },
+            client::Message::UpEnd(idx) => { self.users[idx].as_mut().map(|user| user.end_jump()); },
+            client::Message::DownStart(idx) => { self.users[idx].as_mut().map(|user| user.holding_down = true); }
+            client::Message::DownEnd(idx) => { self.users[idx].as_mut().map(|user| user.holding_down = false); }
+            client::Message::LeftStart(idx) => { self.users[idx].as_mut().map(|user| user.holding_left = true); },
+            client::Message::LeftEnd(idx) => { self.users[idx].as_mut().map(|user| user.holding_left = false); },
+            client::Message::RightStart(idx) => { self.users[idx].as_mut().map(|user| user.holding_right = true); },
+            client::Message::RightEnd(idx) => { self.users[idx].as_mut().map(|user| user.holding_right = false); },
+            client::Message::Click(idx, x, y) => { 
+                
+                let user: &user::User = match self.users[idx].as_ref() {
+                    Some(user) => user,
+                    None => return,
+                };
+
+                self.rooms_mut[user.room_idx].bullets.push(bullet::Bullet {
+                    user_idx: idx,
+                    room_idx: user.room_idx,
+                    ray: Ray::from_entity_and_position(&user.dynamic_entity.entity, x, y),
+                }); 
+
+            }
+        };
+
+    }
+
+    fn tick(&mut self) {
+
+        let len: usize = self.users.len();
+
+        if len == 0 { 
+            return;
+        }
+
+        for room_mut in &mut self.rooms_mut {
+                                    
+            for bullet in &room_mut.bullets {
+                room_mut.bullet_paths.push(bullet.tick(&mut self.users));
+            }
+            
+            room_mut.bullets.clear();
+            
+        }
+
+        for idx in 0..self.users.len() {
+
+            if self.users[idx].is_none() {
+                continue;
+            }
+
+            let (plucked, iter) = self.users.iter_plucked(idx).unwrap(); // none len = 0 (can't happen if in a loop)
+            let user: &mut user::User = plucked.as_mut().unwrap();
+            let users_iter = iter.filter_map(|u| u.as_ref());
+
+            self.rooms_to_render.push(user.room_idx);
+
+            user.tick(users_iter);
+
+        }
+
+        for idx in 0..self.rooms_to_render.len() {
+            let room_idx: usize = self.rooms_to_render[idx]; // indexing to avoid dealing with additional pointer indirection 
+            let buf: Vec<u8> = self.render_room(room_idx);
+            self.send_render_buffer(room_idx, buf);
+        }
+
+        self.rooms_to_render.clear();
+
+        for room_mut in &mut self.rooms_mut {
+            room_mut.bullet_paths.clear();
         }
 
     }

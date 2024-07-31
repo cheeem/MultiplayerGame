@@ -1,13 +1,5 @@
 use tokio::sync::mpsc;
-use crate::{ entity, room, };
-
-// #[derive(Debug)]
-// enum UserState {
-//     Idle, 
-//     RunningLeft,
-//     RunningRight,
-//     Jumping, 
-// }
+use crate::{ entity::{self, HorizontalCollision, VerticalCollision}, room, };
 
 #[derive(Debug)]
 pub struct User {
@@ -34,8 +26,8 @@ impl User {
     const JUMP_FORCE: f32 = -40.0;
     const JUMP_CUTOFF: f32 = 0.5;
 
-    const RUN_START_FORCE: f32 = 2.0;
-    const RUN_END_FORCE: f32 = 4.0;
+    const RUN_START_FORCE: f32 = 1.0;
+    const RUN_END_FORCE: f32 = 2.0;
     const RUN_MAX_SPEED: f32 = 5.0;
 
     pub fn new(idx: u8, room_idx: usize, send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
@@ -62,7 +54,7 @@ impl User {
             send_to_client,
             // entity
             dynamic_entity,
-            // control & state
+            // controls & state
             jump_buffer_ticks: 0,
             coyote_ticks: 0,          
             holding_left: false,
@@ -72,18 +64,18 @@ impl User {
 
     }
 
-    // pub fn respawn(&mut self, room_idx: usize) {
-    //     self.room_idx = room_idx;
-    //     self.dynamic_entity.dx = 0.0;
-    //     self.dynamic_entity.dy = 0.0;
-    //     self.dynamic_entity.entity.x = 0.0;
-    //     self.dynamic_entity.entity.y = 0.0;
-    //     self.jump_buffer_ticks = 0;
-    //     self.coyote_ticks = 0;
-    //     self.holding_left = false;
-    //     self.holding_right = false;
-    //     self.holding_down = false;
-    // }
+    pub fn respawn(&mut self, room_idx: usize) {
+        self.room_idx = room_idx;
+        self.dynamic_entity.dx = 0.0;
+        self.dynamic_entity.dy = 0.0;
+        self.dynamic_entity.entity.x = 0.0;
+        self.dynamic_entity.entity.y = 0.0;
+        self.jump_buffer_ticks = 0;
+        self.coyote_ticks = 0;
+        self.holding_left = false;
+        self.holding_right = false;
+        self.holding_down = false;
+    }
 
     pub fn tick<'a, 'b>(&'a mut self, users: impl Iterator<Item = &'b User>) {
 
@@ -206,57 +198,8 @@ impl User {
                 }
 
             }
-            Some(entity::HorizontalCollision { variant, direction, time }) => {
-                match direction {
-                    entity::HorizontalCollisionDirection::Left => {
-
-                        match variant {
-                            entity::CollisionVariant::Bounds => {
-                                self.dynamic_entity.entity.x = 0.0;
-                            }
-                            entity::CollisionVariant::User(entity) => {
-                                self.dynamic_entity.entity.x = entity.x + entity.width;
-                            }
-                            entity::CollisionVariant::Platform(_) => {
-                                unreachable!();
-                            }
-                            entity::CollisionVariant::Door(door) => {
-                                let room_idx: usize = door.room_idx;
-                                let entity: &entity::Entity = &room::ROOMS[room_idx].doors[door.door_idx].entity;
-
-                                self.room_idx = room_idx;
-                                self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
-                            }
-                        }
-
-                        self.dynamic_entity.dx = 0.0;
-
-                    }
-                    entity::HorizontalCollisionDirection::Right => {
-
-                        match variant {
-                            entity::CollisionVariant::Bounds => {
-                                self.dynamic_entity.entity.x = room.bounds.x_max - self.dynamic_entity.entity.width;
-                            }
-                            entity::CollisionVariant::User(entity) => {
-                                self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
-                            }
-                            entity::CollisionVariant::Platform(_) => {
-                                unreachable!();
-                            }
-                            entity::CollisionVariant::Door(door) => {
-                                let room_idx: usize = door.room_idx;
-                                let entity: &entity::Entity = &room::ROOMS[room_idx].doors[door.door_idx].entity;
-
-                                self.room_idx = room_idx;
-                                self.dynamic_entity.entity.x = entity.x + entity.width;
-                            }
-                        }
-
-                        self.dynamic_entity.dx = 0.0;
-
-                    }
-                }
+            Some(horizontal_collision) => {
+                self.handle_horizontal_collision(horizontal_collision, &room.bounds);
             }
         }
 
@@ -270,56 +213,8 @@ impl User {
                 }
 
             }
-            Some(entity::VerticalCollision { variant, direction, time, }) => {
-                match direction {
-                    entity::VerticalCollisionDirection::Down => {
-
-                        match variant {
-                            entity::CollisionVariant::Bounds => {
-                                self.dynamic_entity.entity.y = room.bounds.y_max - self.dynamic_entity.entity.height;
-                            }
-                            entity::CollisionVariant::User(entity) => {
-                                self.dynamic_entity.entity.y = entity.y - self.dynamic_entity.entity.height;
-                            }
-                            entity::CollisionVariant::Platform(entity) => {
-                                self.dynamic_entity.entity.y = entity.y - self.dynamic_entity.entity.height;
-                            }
-                            entity::CollisionVariant::Door(door) => {
-                                self.dynamic_entity.entity.y = door.entity.y - self.dynamic_entity.entity.height;
-                            }
-                        }
-        
-                        self.dynamic_entity.dy = 0.0;
-        
-                        if self.jump_buffer_ticks > 0 {
-                            self.jump();
-                        } else {
-                            self.coyote_ticks = Self::COYOTE_TICKS;
-                        }
-
-                    }
-                    entity::VerticalCollisionDirection::Up => {
-
-                        match variant {
-                            entity::CollisionVariant::Bounds => {
-                                self.dynamic_entity.entity.y = 0.0;
-                            }
-                            entity::CollisionVariant::User(entity) => {
-                                self.dynamic_entity.entity.y = entity.y + entity.height;
-                            }
-                            entity::CollisionVariant::Platform(_) => {
-                                unreachable!();
-                            }
-                            entity::CollisionVariant::Door(door) => {
-                                self.dynamic_entity.entity.y = door.entity.y + door.entity.height;
-                            }
-                        }
-
-                        self.dynamic_entity.dy = 0.0;
-
-                    }
-                }
-
+            Some(vertical_collision) => {
+                self.handle_vertical_collision(vertical_collision, &room.bounds);
             }
         }
 
@@ -343,6 +238,114 @@ impl User {
                 self.jump_buffer_ticks -= 1;
             }
 
+        }
+
+    }
+
+    fn handle_horizontal_collision(&mut self, horizontal_collision: HorizontalCollision, bounds: &room::Bounds) {
+
+        match horizontal_collision.direction {
+            entity::HorizontalCollisionDirection::Left => {
+
+                match horizontal_collision.variant {
+                    entity::CollisionVariant::Bounds => {
+                        self.dynamic_entity.entity.x = 0.0;
+                    }
+                    entity::CollisionVariant::User(entity) => {
+                        self.dynamic_entity.entity.x = entity.x + entity.width;
+                    }
+                    entity::CollisionVariant::Platform(_) => {
+                        unreachable!();
+                    }
+                    entity::CollisionVariant::Door(door) => {
+                        let room_idx: usize = door.room_idx;
+                        let entity: &entity::Entity = &room::ROOMS[room_idx].doors[door.door_idx].entity;
+
+                        self.room_idx = room_idx;
+                        self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
+                    }
+                }
+
+                self.dynamic_entity.dx = 0.0;
+
+            }
+            entity::HorizontalCollisionDirection::Right => {
+
+                match horizontal_collision.variant {
+                    entity::CollisionVariant::Bounds => {
+                        self.dynamic_entity.entity.x = bounds.x_max - self.dynamic_entity.entity.width;
+                    }
+                    entity::CollisionVariant::User(entity) => {
+                        self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
+                    }
+                    entity::CollisionVariant::Platform(_) => {
+                        unreachable!();
+                    }
+                    entity::CollisionVariant::Door(door) => {
+                        let room_idx: usize = door.room_idx;
+                        let entity: &entity::Entity = &room::ROOMS[room_idx].doors[door.door_idx].entity;
+
+                        self.room_idx = room_idx;
+                        self.dynamic_entity.entity.x = entity.x + entity.width;
+                    }
+                }
+
+                self.dynamic_entity.dx = 0.0;
+
+            }
+        }
+
+    }
+
+    fn handle_vertical_collision(&mut self, vertical_collision: VerticalCollision, bounds: &room::Bounds) {
+
+        match vertical_collision.direction {
+            entity::VerticalCollisionDirection::Down => {
+
+                match vertical_collision.variant {
+                    entity::CollisionVariant::Bounds => {
+                        self.dynamic_entity.entity.y = bounds.y_max - self.dynamic_entity.entity.height;
+                    }
+                    entity::CollisionVariant::User(entity) => {
+                        self.dynamic_entity.entity.y = entity.y - self.dynamic_entity.entity.height;
+                    }
+                    entity::CollisionVariant::Platform(entity) => {
+                        self.dynamic_entity.entity.y = entity.y - self.dynamic_entity.entity.height;
+                    }
+                    entity::CollisionVariant::Door(door) => {
+                        self.dynamic_entity.entity.y = door.entity.y - self.dynamic_entity.entity.height;
+                    }
+                }
+
+                self.dynamic_entity.dy = 0.0;
+
+                if self.jump_buffer_ticks > 0 {
+                    self.jump();
+                } else {
+                    self.coyote_ticks = Self::COYOTE_TICKS;
+                }
+
+            }
+            entity::VerticalCollisionDirection::Up => {
+
+                match vertical_collision.variant {
+                    entity::CollisionVariant::Bounds => {
+                        self.dynamic_entity.entity.y = 0.0;
+                    }
+                    entity::CollisionVariant::User(entity) => {
+                        self.dynamic_entity.entity.y = entity.y + entity.height;
+                    }
+                    entity::CollisionVariant::Platform(_) => {
+                        unreachable!();
+                    }
+                    entity::CollisionVariant::Door(door) => {
+                        self.dynamic_entity.entity.y = door.entity.y + door.entity.height;
+                    }
+                }
+
+                self.dynamic_entity.dy = 0.0;
+
+            }
         }
 
     }

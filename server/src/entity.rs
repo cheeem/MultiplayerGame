@@ -207,8 +207,6 @@ impl DynamicEntity {
 
     pub fn swept_collision<'a, 'b>(&'a self, other: &'b Entity) -> (f32, Option<HorizontalCollisionDirection>, Option<VerticalCollisionDirection>) {
 
-        let entry_time: f32 = 1.0;
-
         let (x_entry_time, x_exit_time) = if self.dx == 0.0 {
             
             if self.entity.x < other.x + other.width && other.x < self.entity.x + self.entity.width {
@@ -218,7 +216,7 @@ impl DynamicEntity {
                 )
             } else {
                 return (
-                    entry_time, 
+                    f32::INFINITY, 
                     None,
                     None,
                 )
@@ -254,7 +252,7 @@ impl DynamicEntity {
                 )
             } else {
                 return (
-                    entry_time,
+                    f32::INFINITY,
                     None,
                     None,
                 )
@@ -283,17 +281,13 @@ impl DynamicEntity {
 
         if x_entry_time > y_exit_time || y_entry_time > x_exit_time {
             return (
-                entry_time,
+                f32::INFINITY,
                 None,
                 None,
             )
         }
 
-        let entry_time: f32 = if x_entry_time > y_entry_time {
-            x_entry_time
-        } else {
-            y_entry_time
-        };
+        let entry_time: f32 = f32::max(x_entry_time, y_entry_time);
 
         if entry_time < 0.0 || entry_time > 1.0 {
             return (

@@ -23,11 +23,13 @@ pub struct Bounds {
     pub y_max: f32,
 }
 
-pub type RoomsMut = [RoomMut; 2];
+pub type RoomsMut = [RoomMut; ROOM_COUNT];
 
-pub const ROOMS: [Room; 2] = [
+pub const ROOM_COUNT: usize = 2;
+
+pub const ROOMS: [Room; ROOM_COUNT] = [
     Room {
-        gravity: 2.0,
+        gravity: 1.5,
         bounds: Bounds { x_max: u8::MAX as f32, y_max: u8::MAX as f32 },
         platforms: &[
             entity::Entity { x: 70.0, y: 245.0, width: 50.0, height: 3.0 },

@@ -15,20 +15,6 @@ pub struct BulletPath {
 
 impl Bullet {
 
-    pub fn from_click_position(user: &user::User, idx: usize, x: f32, y: f32) -> Self {
-
-        let ray: ray::Ray = ray::Ray::from_click_position(&user.dynamic_entity.entity, x, y);
-
-        println!("{x} {y} {} {}", ray.direction_x, ray.direction_y);
-        
-        Self { 
-            user_idx: idx, 
-            room_idx: user.room_idx,
-            ray,
-        }
-        
-    }
-
     pub fn tick(&self, users: &mut [Option<user::User>]) -> BulletPath {
 
         let room: &room::Room = &room::ROOMS[self.room_idx];
@@ -75,8 +61,6 @@ impl Bullet {
 
         }
 
-        println!("{:?}\n", intersection.as_ref().map(|i| i.distance));
-
         let distance: f32 = match intersection {
             //None => f32::max(room.bounds.x_max, room.bounds.y_max) * std::f32::consts::SQRT_2,
             None => 200.0,
@@ -84,9 +68,10 @@ impl Bullet {
 
                 if let ray::IntersectionVariant::User(idx) = variant {
 
-                    let user: user::User = users[idx].take().unwrap();
+                    let mut user: user::User = users[idx].take().unwrap();
                     // respawn shot user
-                    users[idx] = Some(user::User::new(user.idx, user.room_idx, user.send_to_client));
+                    user.respawn(user.room_idx);
+                    //users[idx] = Some(user::User::new(user.idx, user.room_idx, user.send_to_client));
 
                 }
 

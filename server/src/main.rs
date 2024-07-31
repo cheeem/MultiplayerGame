@@ -22,7 +22,7 @@ async fn main() {
     let (
         send_to_game, 
         receive_from_client
-    ) = mpsc::channel(100);
+    ) = mpsc::channel(game::MAX_PLAYERS);
 
     tokio::spawn(game::Game::init(receive_from_client));
 

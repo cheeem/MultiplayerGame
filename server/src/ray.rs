@@ -19,7 +19,7 @@ pub struct Ray {
 
 impl Ray {
 
-    pub fn from_click_position(entity: &entity::Entity, x: f32, y: f32) -> Self {
+    pub fn from_entity_and_position(entity: &entity::Entity, x: f32, y: f32) -> Self {
 
         let origin_x: f32 = entity.x + entity.width * 0.5;
         let origin_y: f32 = entity.y + entity.height * 0.5;
@@ -31,8 +31,6 @@ impl Ray {
 
         let direction_x: f32 = distance_x / magnitude;
         let direction_y: f32 = distance_y / magnitude; 
-
-        println!("{} {} {} {} {} {} {}", x, y, origin_x, origin_y, distance_x, distance_y, magnitude);
 
         return Self {
             origin_x,
