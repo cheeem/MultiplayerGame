@@ -23,7 +23,6 @@ pub enum Message {
 
 pub struct Client {
     idx: usize,
-    idx_u8: u8,
     ws: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     receive_from_game: mpsc::Receiver<Vec<u8>>,
     send_to_game: mpsc::Sender<Message>,
@@ -62,7 +61,6 @@ impl Client {
 
         let mut client: Self = Self {
             idx,
-            idx_u8: idx as u8,
             ws,
             receive_from_game,
             send_to_game,
@@ -74,13 +72,10 @@ impl Client {
 
                 buf = client.receive_from_game.recv() => {
 
-                    let mut buf: Vec<u8> = match buf {
+                    let buf: Vec<u8> = match buf {
                         Some(buf) => buf,
                         None => return println!("no render buffer found"),
                     };
-
-                    // footer
-                    buf.push(client.idx_u8);
 
                     if let Err(err) = client.ws.send(tungstenite::Message::binary(buf)).await {
                         return println!("failed to send on websocket stream: {:#?}", err);

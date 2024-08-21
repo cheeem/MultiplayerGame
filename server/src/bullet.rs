@@ -1,7 +1,8 @@
-use crate::{ ray, room, user };
+use crate::{ ray, room, user::{self, User} };
 
 pub struct Bullet {
     pub user_idx: usize, 
+    pub target_user_idx: usize,
     pub room_idx: usize,
     pub ray: ray::Ray,
 }
@@ -68,10 +69,24 @@ impl Bullet {
 
                 if let ray::IntersectionVariant::User(idx) = variant {
 
-                    let mut user: user::User = users[idx].take().unwrap();
-                    // respawn shot user
-                    user.respawn(user.room_idx);
-                    //users[idx] = Some(user::User::new(user.idx, user.room_idx, user.send_to_client));
+                    if idx == self.target_user_idx {
+
+                        // add code to take the target's target
+                        
+                        let killed_user: user::User = users[idx].take().unwrap();
+
+                        users[self.user_idx].as_mut().unwrap().target_user_idx = killed_user.target_user_idx;
+                        
+                        // respawn shot user
+                        //user.respawn(user.room_idx);
+                        users[idx] = Some(user::User::new(
+                            killed_user.idx, 
+                            killed_user.room_idx, 
+                            User::get_target_idx(users, idx), 
+                            killed_user.send_to_client,
+                        ));
+
+                    }
 
                 }
 

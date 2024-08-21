@@ -1,5 +1,30 @@
+use rand::Rng;
 use tokio::sync::mpsc;
-use crate::{ entity::{self, HorizontalCollision, VerticalCollision}, room, };
+use crate::{ entity, room, };
+
+// when creating a new "game"
+    // users_with_target usize = 0
+    // start at first user
+        // rand idx of users.len() - 1 (don't want to select yourself) is target_idx
+        // increment users_with_target
+    // go to target_idx
+        // keep going to rand idx until user's target_idx is unset and not (self) and some()
+            // this rand idx is target_idx
+        // increment users_with_target
+    // if users_with_target >= users.len() - 1
+        // target_idx is 0 (first user)
+        // break/stop
+
+// creating "game" v2 (not all at once)
+    // first user's target is himself?
+    // second user's target is the other user
+        // first user's target is the second user
+    // each additional user uses the below method to add new users 
+
+// adding user to existing game 
+    // search for random idx
+        // new user's target_idx is the random user's target_idx
+        // random user's target_idx is new user's idx
 
 #[derive(Debug)]
 pub struct User {
@@ -11,6 +36,7 @@ pub struct User {
     // dynamic entity
     pub dynamic_entity: entity::DynamicEntity,
     // controls & state
+    pub target_user_idx: usize, 
     pub jump_buffer_ticks: u8,
     coyote_ticks: u8,
     pub holding_left: bool, 
@@ -30,7 +56,7 @@ impl User {
     const RUN_END_FORCE: f32 = 2.0;
     const RUN_MAX_SPEED: f32 = 5.0;
 
-    pub fn new(idx: u8, room_idx: usize, send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
+    pub fn new(idx: u8, room_idx: usize, target_user_idx: usize, send_to_client: mpsc::Sender<Vec<u8>>) -> Self {
 
         let entity: entity::Entity = entity::Entity {
             x: 0.0,
@@ -55,6 +81,7 @@ impl User {
             // entity
             dynamic_entity,
             // controls & state
+            target_user_idx,
             jump_buffer_ticks: 0,
             coyote_ticks: 0,          
             holding_left: false,
@@ -242,7 +269,7 @@ impl User {
 
     }
 
-    fn handle_horizontal_collision(&mut self, horizontal_collision: HorizontalCollision, bounds: &room::Bounds) {
+    fn handle_horizontal_collision(&mut self, horizontal_collision: entity::HorizontalCollision, bounds: &room::Bounds) {
 
         match horizontal_collision.direction {
             entity::HorizontalCollisionDirection::Left => {
@@ -250,9 +277,11 @@ impl User {
                 match horizontal_collision.variant {
                     entity::CollisionVariant::Bounds => {
                         self.dynamic_entity.entity.x = 0.0;
+                        self.dynamic_entity.dx = 0.0;
                     }
                     entity::CollisionVariant::User(entity) => {
                         self.dynamic_entity.entity.x = entity.x + entity.width;
+                        self.dynamic_entity.dx = 0.0;
                     }
                     entity::CollisionVariant::Platform(_) => {
                         unreachable!();
@@ -265,8 +294,6 @@ impl User {
                         self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
                     }
                 }
-
-                self.dynamic_entity.dx = 0.0;
 
             }
             entity::HorizontalCollisionDirection::Right => {
@@ -274,9 +301,11 @@ impl User {
                 match horizontal_collision.variant {
                     entity::CollisionVariant::Bounds => {
                         self.dynamic_entity.entity.x = bounds.x_max - self.dynamic_entity.entity.width;
+                        self.dynamic_entity.dx = 0.0;
                     }
                     entity::CollisionVariant::User(entity) => {
                         self.dynamic_entity.entity.x = entity.x - self.dynamic_entity.entity.width;
+                        self.dynamic_entity.dx = 0.0;
                     }
                     entity::CollisionVariant::Platform(_) => {
                         unreachable!();
@@ -290,14 +319,12 @@ impl User {
                     }
                 }
 
-                self.dynamic_entity.dx = 0.0;
-
             }
         }
 
     }
 
-    fn handle_vertical_collision(&mut self, vertical_collision: VerticalCollision, bounds: &room::Bounds) {
+    fn handle_vertical_collision(&mut self, vertical_collision: entity::VerticalCollision, bounds: &room::Bounds) {
 
         match vertical_collision.direction {
             entity::VerticalCollisionDirection::Down => {
@@ -411,6 +438,35 @@ impl User {
             0.0
         };
         
+    }
+
+    pub fn get_target_idx(users: &mut [Option<User>], new_user_idx: usize) -> usize {
+
+        let no_users: bool = users.iter().any(|user| user.is_some()) == false;
+
+        if no_users {
+            return 0;
+        }
+
+        let mut rng: rand::rngs::ThreadRng = rand::thread_rng();
+
+        loop {
+
+            let random_user_idx: usize = rng.gen_range(0..users.len());
+
+            let random_user: &mut User = match users[random_user_idx].as_mut() {
+                Some(user) => user,
+                None => continue,
+            };
+
+            let target_user_idx: usize = random_user.target_user_idx;
+
+            random_user.target_user_idx = new_user_idx;
+
+            return target_user_idx;
+
+        }
+
     }
 
 }

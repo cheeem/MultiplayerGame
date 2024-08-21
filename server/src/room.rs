@@ -45,7 +45,7 @@ pub const ROOMS: [Room; ROOM_COUNT] = [
         ],
     },
     Room {
-        gravity: 1.0,
+        gravity: 1.5,
         bounds: Bounds { x_max: 255.0, y_max: 255.0 },
         platforms: &[
             entity::Entity { x: 70.0, y: 245.0, width: 50.0, height: 3.0 },

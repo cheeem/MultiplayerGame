@@ -1,12 +1,12 @@
 use tokio::sync::mpsc;
-use crate::{ bullet, client, entity, ray::Ray, room::{self, ROOM_COUNT}, slice, user };
+use crate::{ bullet, client, entity, ray, room, slice, user };
 use slice::IterPlucked;
 
 pub struct Game {
     receive_from_client: mpsc::Receiver<client::Message>,
     users: Vec<Option<user::User>>,
     rooms_mut: room::RoomsMut,
-    rooms_to_render: Vec<usize>, 
+    rooms_to_render: Vec<usize>,
 }
 
 pub const TICK_DT: u64 = 16;
@@ -20,7 +20,7 @@ impl Game {
             receive_from_client,
             users: Vec::with_capacity(MAX_PLAYERS),
             rooms_mut: room::rooms_mut(),
-            rooms_to_render: Vec::with_capacity(ROOM_COUNT), 
+            rooms_to_render: Vec::with_capacity(room::ROOM_COUNT), 
         };
 
         let mut timer: tokio::time::Interval = tokio::time::interval(tokio::time::Duration::from_millis(TICK_DT));
@@ -53,15 +53,24 @@ impl Game {
 
                 match self.users.iter().position(|user| user.is_none()) {
                     Some(idx) => {
+                        
+                        let target_user_idx: usize = user::User::get_target_idx(&mut self.users, idx);
+                        
                         if send_idx_to_client.send(idx).is_ok() {
-                            self.users[idx] = Some(user::User::new(idx as u8, 0, send_to_client));
+                            self.users[idx] = Some(user::User::new(idx as u8, 0, target_user_idx,  send_to_client));
                         }
+
                     }
                     None => {
+                        
                         let idx: usize = self.users.len();
+                        
+                        let target_user_idx: usize = user::User::get_target_idx(&mut self.users, idx);
+                        
                         if send_idx_to_client.send(idx).is_ok() {
-                            self.users.push(Some(user::User::new(idx as u8, 0, send_to_client)));
+                            self.users.push(Some(user::User::new(idx as u8, 0, target_user_idx, send_to_client)));
                         }
+
                     }
                 }
 
@@ -83,8 +92,9 @@ impl Game {
 
                 self.rooms_mut[user.room_idx].bullets.push(bullet::Bullet {
                     user_idx: idx,
+                    target_user_idx: user.target_user_idx,
                     room_idx: user.room_idx,
-                    ray: Ray::from_entity_and_position(&user.dynamic_entity.entity, x, y),
+                    ray: ray::Ray::from_entity_and_position(&user.dynamic_entity.entity, x, y),
                 }); 
 
             }
@@ -212,7 +222,7 @@ impl Game {
 
     }
 
-    fn send_render_buffer(&mut self, room_idx: usize, buf: Vec<u8>) {
+    fn send_render_buffer(&mut self, room_idx: usize, mut buf: Vec<u8>) {
 
         let mut last_idx: Option<usize> = None;
 
@@ -248,7 +258,13 @@ impl Game {
                 continue;
             }
 
-            match user.send_to_client.try_send(buf.clone()) {
+            let mut buf: Vec<u8> = buf.clone();
+
+            // footer
+            buf.push(user.idx);
+            buf.push(user.target_user_idx as u8);
+
+            match user.send_to_client.try_send(buf) {
                 Ok(_) => (),
                 Err(mpsc::error::TrySendError::Closed(_)) => self.users[idx] = None,
                 Err(err) => return println!("failed to send render buffer: {:#?}", err),
@@ -260,6 +276,10 @@ impl Game {
             Some(user) => user,
             None => return,
         };
+
+        // footer
+        buf.push(last_user.idx);
+        buf.push(last_user.target_user_idx as u8);
 
         match last_user.send_to_client.try_send(buf) {
             Ok(_) => (),
